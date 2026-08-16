@@ -51,3 +51,23 @@ test('vec3util 坐标工具', () => {
   const n = normalize({ x: 120.7, y: 64.2, z: 200.9 });
   assert.deepStrictEqual(n, { x: 120, y: 64, z: 200 });
 });
+
+test('_checkpoint 在全局暂停时可被 cancel 打断（回归：暂停后任务永久挂起）', async () => {
+  const owner = { paused: true };
+  const task = new ReclassifyTask(owner);
+  const p = task._checkpoint();
+  await new Promise(r => setTimeout(r, 30));
+  task.cancel(); // 设置 _cancelled + _wake
+  await assert.rejects(p, /任务已取消/);
+});
+
+test('_checkpoint 在全局暂停解除后继续（回归：resume/unpause 恢复任务）', async () => {
+  const owner = { paused: true };
+  const task = new ReclassifyTask(owner);
+  const p = task._checkpoint();
+  await new Promise(r => setTimeout(r, 30));
+  owner.paused = false; // 模拟 unpauseAll
+  task._wake();
+  await p; // 正常返回，不抛异常
+  assert.strictEqual(task.state, 'idle');
+});

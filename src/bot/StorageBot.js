@@ -143,6 +143,7 @@ class StorageBot {
   /** 重启（应用新的连接配置，如 host/port/username/version） */
   restart() {
     this._shutdown = false;
+    this.paused = false; // 重启/重连即解除全局暂停（溢出箱满等旧状态不跨连接保留）
     clearTimeout(this._storeTimer);
     if (this.task) this.task.cancel();
     if (this.bot) {
@@ -705,7 +706,14 @@ class StorageBot {
         return { ok: true, message: '已暂停当前任务' };
       }
       case 'resume':
-      case 'resumetask': {
+      case 'resumetask':
+      case 'unpause': {
+        // 解除全局暂停（溢出箱满等触发的 paused）并恢复任务；
+        // 原实现只 task.resume()，不解除 owner.paused，导致暂停后 bot 永久不动
+        if (this.paused) {
+          this.unpauseAll();
+          return { ok: true, message: '已解除全局暂停并恢复任务' };
+        }
         this.resumeTask();
         return { ok: true, message: '已恢复当前任务' };
       }

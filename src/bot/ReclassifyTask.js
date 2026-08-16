@@ -121,8 +121,9 @@ class ReclassifyTask {
 
   /** 任务循环内的检查点：处理取消 / 暂停 / 全局暂停 */
   async _checkpoint() {
-    if (this._cancelled) throw Object.assign(new Error('任务已取消'), { code: 'CANCELLED' });
-    while (this._paused || this.owner.paused) {
+    while (true) {
+      if (this._cancelled) throw Object.assign(new Error('任务已取消'), { code: 'CANCELLED' });
+      if (!(this._paused || this.owner.paused)) break;
       await new Promise(resolve => this._resumeWaiters.push(resolve));
     }
   }
