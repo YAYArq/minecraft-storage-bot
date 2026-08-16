@@ -184,7 +184,7 @@ class StorageBot {
       auth: cfg.auth || 'offline',
       version: version || undefined,
       hideErrors: true, // 抑制 minecraft-protocol 偶发 chunk 解压错误的大量 hex 输出（防 pty 缓冲阻塞）
-      // 客户端品牌标识：Fabric 模组服要求客户端 brand 为 fabric（如 <旧服务器域名>:53761）
+      // 客户端品牌标识：Fabric 模组服要求客户端 brand 为 fabric（如 <旧服务器域名>）
       brand: cfg.brand || 'vanilla'
     });
     this.bot = bot;
