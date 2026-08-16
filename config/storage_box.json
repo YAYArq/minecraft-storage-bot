@@ -1,0 +1,89 @@
+{
+  "batchSize": 64,
+  "freeSlotThreshold": 6,
+  "sourceBoxes": [
+    {
+      "x": 100,
+      "y": 64,
+      "z": 200
+    },
+    {
+      "x": 101,
+      "y": 64,
+      "z": 200
+    }
+  ],
+  "targetBoxes": [
+    {
+      "x": 120,
+      "y": 64,
+      "z": 200,
+      "category": "钻石",
+      "items": [
+        "minecraft:diamond",
+        "minecraft:diamond",
+        "minecraft:diamond",
+        "minecraft:diamond"
+      ]
+    },
+    {
+      "x": 121,
+      "y": 64,
+      "z": 200,
+      "category": "铁锭",
+      "items": [
+        "minecraft:iron_ingot",
+        "minecraft:iron_ingot",
+        "minecraft:iron_ingot"
+      ]
+    },
+    {
+      "x": 122,
+      "y": 64,
+      "z": 200,
+      "category": "金锭",
+      "items": [
+        "minecraft:gold_ingot",
+        "minecraft:gold_ingot",
+        "minecraft:gold_ingot"
+      ]
+    },
+    {
+      "x": 123,
+      "y": 64,
+      "z": 200,
+      "category": "面包",
+      "items": [
+        "minecraft:bread",
+        "minecraft:bread",
+        "minecraft:bread"
+      ]
+    },
+    {
+      "x": 124,
+      "y": 64,
+      "z": 200,
+      "category": "胡萝卜",
+      "items": [
+        "minecraft:carrot",
+        "minecraft:carrot",
+        "minecraft:carrot"
+      ]
+    }
+  ],
+  "overflowBoxes": [
+    {
+      "x": -11,
+      "y": 69,
+      "z": -5
+    },
+    {
+      "x": -11,
+      "y": 70,
+      "z": -5
+    }
+  ],
+  "zhNameMap": {
+    "自定义物品名": "minecraft:item_name"
+  }
+}

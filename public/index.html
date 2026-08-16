@@ -1,0 +1,404 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>仓库分类 BOT · 控制面板</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+</head>
+<body>
+  <div id="app" class="app">
+    <aside class="sidebar">
+      <div class="sidebar-logo">
+        <span class="brand"><span id="brand-title">仓库分类 BOT</span></span>
+        <span class="sidebar-sub">STORAGE BOT PANEL</span>
+      </div>
+      <nav class="main-tabs" id="main-tabs">
+        <button class="main-tab active" data-view="instances" title="01 实例"><span class="nav-ico">01</span><span class="nav-label">实例</span></button>
+        <button class="main-tab" data-view="map" title="02 仓库地图"><span class="nav-ico">02</span><span class="nav-label">仓库地图</span></button>
+        <button class="main-tab" data-view="tasks" title="03 任务列表"><span class="nav-ico">03</span><span class="nav-label">任务列表</span></button>
+        <button class="main-tab" data-view="inventory" title="04 库存盘点"><span class="nav-ico">04</span><span class="nav-label">库存盘点</span></button>
+        <button class="main-tab" data-view="chat" title="05 聊天与指令"><span class="nav-ico">05</span><span class="nav-label">聊天与指令</span></button>
+        <button class="main-tab" data-view="configs" title="06 配置"><span class="nav-ico">06</span><span class="nav-label">配置</span></button>
+        <button class="main-tab" data-view="settings" title="07 系统设置"><span class="nav-ico">07</span><span class="nav-label">系统设置</span></button>
+        <button class="main-tab" data-view="logs" title="08 日志"><span class="nav-ico">08</span><span class="nav-label">日志</span></button>
+      </nav>
+      <div class="sidebar-status">
+        <span id="conn-status" class="conn-status">--</span>
+        <span id="perf-status" class="perf-status">面板 v1.1</span>
+      </div>
+      <div class="sidebar-actions">
+        <button id="ws-toggle" class="btn btn-ghost" title="WebSocket 连接状态">
+          <span class="nav-ico">◉</span><span class="nav-label" id="ws-label">未连接</span>
+        </button>
+      </div>
+    </aside>
+
+    <main class="main">
+
+      <!-- ============ Hero ============ -->
+      <section class="sec sec-hero" id="sec-hero">
+        <div class="hero">
+          <div class="hero-title">仓库分类 BOT</div>
+          <div class="hero-sub">MINECRAFT STORAGE CLASSIFIER · 自动入库 / 分批重分类 / 溢出箱管理 / 开箱识别盘点</div>
+          <div class="hero-stats">
+            <div class="hero-stat"><span class="hero-stat-num" id="h-instances">-</span><span class="hero-stat-label">实例</span></div>
+            <div class="hero-stat"><span class="hero-stat-num" id="h-online">-</span><span class="hero-stat-label">在线</span></div>
+            <div class="hero-stat"><span class="hero-stat-num" id="h-tasks">-</span><span class="hero-stat-label">任务运行</span></div>
+            <div class="hero-stat"><span class="hero-stat-num" id="h-alerts">-</span><span class="hero-stat-label">溢出告警</span></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 01 实例 ============ -->
+      <section class="sec" id="sec-instances">
+        <header class="sec-head">
+          <span class="sec-no">01</span>
+          <h2 class="sec-title">实例</h2>
+          <span id="list-summary" class="list-summary"></span>
+        </header>
+        <div class="toolbar">
+          <span id="selected-count" class="selected-count"></span>
+          <div class="toolbar-actions">
+            <button id="btn-refresh" class="btn btn-sm" title="刷新实例列表">刷新</button>
+            <button id="btn-start-all" class="btn btn-sm" title="开启全部实例的自动入库">全部启动</button>
+            <button id="btn-stop-all" class="btn btn-sm" title="关闭全部实例的自动入库">全部停止</button>
+            <button id="btn-add-bot" class="btn btn-sm btn-primary" title="新建 bot 实例">＋ 新建实例</button>
+          </div>
+        </div>
+        <div id="instance-grid" class="instance-grid"></div>
+        <div id="empty-state" class="empty-state hidden"><div class="empty-icon">00</div><p id="empty-text">暂无实例</p></div>
+      </section>
+
+      <!-- ============ 02 实例详情 ============ -->
+      <section class="sec hidden" id="sec-detail">
+        <header class="sec-head">
+          <span class="sec-no">02</span>
+          <h2 class="sec-title" id="detail-title">实例详情</h2>
+          <button id="btn-back" class="btn btn-sm">← 返回</button>
+        </header>
+        <div class="tab-bar" id="detail-tabs">
+          <button class="tab active" data-tab="status">状态</button>
+          <button class="tab" data-tab="config">配置</button>
+          <button class="tab" data-tab="log">日志</button>
+          <button class="tab" data-tab="command">指令</button>
+        </div>
+
+        <section id="tab-status" class="tab-panel">
+          <div class="panel-grid">
+            <div class="panel-box">
+              <div class="panel-title">实例状态</div>
+              <div id="st-basic" class="kv-list"></div>
+            </div>
+            <div class="panel-box">
+              <div class="panel-title">重分类任务统计</div>
+              <div id="st-task" class="kv-list"></div>
+            </div>
+          </div>
+          <div class="config-toolbar">
+            <button id="btn-store" class="btn btn-primary" title="开启 / 关闭自动入库">自动入库</button>
+            <button id="btn-reclassify" class="btn btn-accent" title="启动批量重分类任务">执行区域重分类</button>
+            <button id="btn-pause" class="btn btn-sm">暂停任务</button>
+            <button id="btn-resume" class="btn btn-sm">恢复任务</button>
+            <button id="btn-stop-task" class="btn btn-sm btn-danger">停止任务</button>
+            <button id="btn-reload" class="btn btn-sm" title="热重载箱子配置">重载配置</button>
+            <button id="btn-restart" class="btn btn-sm" title="重启 bot（应用连接配置变更）">重启 Bot</button>
+            <span id="st-result" class="command-result"></span>
+          </div>
+        </section>
+
+        <section id="tab-config" class="tab-panel hidden">
+          <p class="panel-hint">bot 连接配置，保存后写回 config/bots.json；修改 host / port / username / auth / version 后需「重启 Bot」生效。</p>
+          <div class="config-form">
+            <label class="form-label">实例 id · id（不可修改）<input id="cfg-id" class="input mono-input" disabled></label>
+            <label class="form-label">服务器地址 · host<input id="cfg-host" class="input mono-input" placeholder="127.0.0.1"></label>
+            <label class="form-label">端口 · port<input id="cfg-port" type="number" class="input" placeholder="25565"></label>
+            <label class="form-label">游戏名 · username<input id="cfg-username" class="input mono-input" placeholder="StorageBot1"></label>
+            <label class="form-label">鉴权方式 · auth
+              <select id="cfg-auth" class="select"><option value="offline">offline（离线服）</option><option value="microsoft">microsoft（正版）</option></select>
+            </label>
+            <label class="form-label">协议版本 · version<input id="cfg-version" class="input mono-input" placeholder="1.21.1"></label>
+            <label class="form-label">箱子配置路径 · storageConfig<input id="cfg-storage" class="input mono-input" placeholder="config/storage_box.json"></label>
+            <label class="form-label">信任玩家 · trustedPlayers（逗号分隔）<input id="cfg-trusted" class="input mono-input" placeholder="Steve,Alex"></label>
+            <label class="form-label">指令前缀 · commandPrefix<input id="cfg-prefix" class="input mono-input" placeholder="!"></label>
+            <label class="form-label">客户端品牌 · brand（Fabric 模组服填 fabric）<input id="cfg-brand" class="input mono-input" placeholder="vanilla"></label>
+          </div>
+          <div class="config-toolbar">
+            <button id="cfg-save" class="btn btn-primary">保存配置</button>
+            <button id="cfg-restart" class="btn btn-sm">保存并重启 Bot</button>
+            <span id="cfg-result" class="command-result"></span>
+          </div>
+          <div class="panel-title" style="margin-top:6px">可视化配置 · 返回点 / 源箱 / 目标箱 / 溢出箱</div>
+          <p class="panel-hint">保存后写回 storage_box.json 并热重载；物品支持 数字id / minecraft:name / 中文名，多个用逗号分隔。</p>
+          <div class="config-form" style="grid-template-columns:repeat(5,1fr)">
+            <label class="form-label">batchSize<input id="vis-batch" type="number" class="input"></label>
+            <label class="form-label">freeSlotThreshold<input id="vis-free" type="number" class="input"></label>
+            <label class="form-label">返回点 x<input id="vis-spx" class="input mono-input" placeholder="留空不启用"></label>
+            <label class="form-label">返回点 y<input id="vis-spy" class="input mono-input"></label>
+            <label class="form-label">返回点 z<input id="vis-spz" class="input mono-input"></label>
+          </div>
+          <div class="panel-title" style="margin-top:14px">源投料箱（杂乱物品来源） <button id="vis-add-src" class="btn btn-sm">＋ 添加</button></div>
+          <div id="vis-srcs" class="vis-list"></div>
+          <div class="panel-title" style="margin-top:14px">目标分类箱（每箱绑定固定分类） <button id="vis-add-tgt" class="btn btn-sm">＋ 添加</button></div>
+          <div id="vis-tgts" class="vis-list"></div>
+          <div class="panel-title" style="margin-top:14px">溢出箱（无匹配 / 目标箱已满） <button id="vis-add-ovf" class="btn btn-sm">＋ 添加</button></div>
+          <div id="vis-ovfs" class="vis-list"></div>
+          <div class="config-toolbar">
+            <button id="vis-save" class="btn btn-primary">保存可视化配置</button>
+            <span id="vis-result" class="command-result"></span>
+          </div>
+
+          <div class="panel-title" style="margin-top:18px">对角区域框选（区域内所有箱子视为同类型）</div>
+          <p class="panel-hint">输入两个对角坐标框出一个立方体，区域内扫描到的箱子会全部作为源箱 / 溢出箱；独立添加、即时生效，不影响上方表单与 JSON 编辑。</p>
+          <div class="area-card">
+            <div class="area-type">
+              <label class="radio-label"><input type="radio" name="area-type" value="source" checked><span>源箱区域</span></label>
+              <label class="radio-label"><input type="radio" name="area-type" value="overflow"><span>溢出箱区域</span></label>
+            </div>
+            <div class="area-corner">
+              <span class="corner-title">对角 1</span>
+              <input id="ar1x" type="number" class="input" placeholder="x">
+              <input id="ar1y" type="number" class="input" placeholder="y">
+              <input id="ar1z" type="number" class="input" placeholder="z">
+            </div>
+            <div class="area-corner">
+              <span class="corner-title">对角 2</span>
+              <input id="ar2x" type="number" class="input" placeholder="x">
+              <input id="ar2y" type="number" class="input" placeholder="y">
+              <input id="ar2z" type="number" class="input" placeholder="z">
+            </div>
+            <div class="config-toolbar">
+              <button id="area-scan" class="btn btn-sm">扫描区域内箱子</button>
+              <button id="area-add" class="btn btn-primary">添加为区域</button>
+              <span id="area-result" class="command-result"></span>
+            </div>
+            <div id="area-preview" class="area-preview"></div>
+          </div>
+          <div id="vis-areas" class="vis-list"></div>
+
+          <div class="panel-title" style="margin-top:18px">箱子配置 · storage_box.json 高级 JSON 编辑（保存后热重载生效）</div>
+          <div class="config-toolbar">
+            <button id="box-reload" class="btn btn-sm">刷新</button>
+            <button id="box-save" class="btn btn-primary">保存箱子配置</button>
+            <span id="box-result" class="command-result"></span>
+          </div>
+          <textarea id="box-editor" class="config-editor" spellcheck="false" placeholder='{ "batchSize": 64, ... }'></textarea>
+          <div id="box-view" class="box-view"></div>
+        </section>
+
+        <section id="tab-log" class="tab-panel hidden">
+          <div class="config-toolbar">
+            <button id="btn-clear-log" class="btn btn-sm">清空</button>
+            <label class="check-all"><input type="checkbox" id="chk-auto" checked><span>自动滚动</span></label>
+            <span class="panel-hint">实时日志：寻路状态 / 物品移入 / 箱子已满 / 错误提示</span>
+          </div>
+          <div id="log-box" class="log-box"></div>
+        </section>
+
+        <section id="tab-command" class="tab-panel hidden">
+          <p class="panel-hint">向该 bot 下发指令（等价于游戏内信任玩家指令）</p>
+          <form id="command-form" class="command-form">
+            <input id="command-input" class="input mono-input" placeholder="如 reclassify / store on / reload" autocomplete="off">
+            <button type="submit" class="btn btn-primary">发送</button>
+          </form>
+          <div class="config-toolbar" style="margin-top:10px">
+            <button class="btn btn-sm" data-cmd="store on">入库开</button>
+            <button class="btn btn-sm" data-cmd="store off">入库关</button>
+            <button class="btn btn-sm btn-accent" data-cmd="reclassify">重分类</button>
+            <button class="btn btn-sm" data-cmd="pause">暂停</button>
+            <button class="btn btn-sm" data-cmd="resume">恢复</button>
+            <button class="btn btn-sm" data-cmd="reload">重载配置</button>
+            <button class="btn btn-sm" data-cmd="status">状态</button>
+          </div>
+          <span id="cmd-result" class="command-result"></span>
+          <div class="command-history-wrap">
+            <div class="panel-title">指令历史</div>
+            <div id="command-history" class="command-history"></div>
+          </div>
+        </section>
+      </section>
+
+      <!-- ============ 02 仓库地图 ============ -->
+      <section class="sec hidden" id="sec-map">
+        <header class="sec-head">
+          <span class="sec-no">02</span>
+          <h2 class="sec-title">仓库地图</h2>
+          <span class="list-summary">XZ 俯视图：源箱 / 目标箱 / 溢出箱 / 扫描区域（内容来自开箱识别盘点）</span>
+        </header>
+        <div class="toolbar">
+          <label class="form-label" style="flex-direction:row;align-items:center;display:flex;gap:8px">选择实例
+            <select id="map-bot" class="select" style="width:auto"></select>
+          </label>
+          <button id="map-refresh" class="btn btn-sm">刷新</button>
+          <span id="map-hint" class="panel-hint" style="margin:0"></span>
+        </div>
+        <div id="map-canvas-wrap" class="map-wrap"></div>
+      </section>
+
+      <!-- ============ 03 任务列表 ============ -->
+      <section class="sec hidden" id="sec-tasks">
+        <header class="sec-head">
+          <span class="sec-no">03</span>
+          <h2 class="sec-title">任务列表</h2>
+          <span class="list-summary">批量重分类任务：当前运行 + 历史记录</span>
+        </header>
+        <div class="config-toolbar">
+          <button id="tasks-refresh" class="btn btn-sm">刷新</button>
+        </div>
+        <div class="table-wrap">
+          <table class="v3-table" id="tasks-table">
+            <thead><tr><th>时间</th><th>实例</th><th>类型</th><th>状态</th><th>已处理</th><th>源箱数</th><th>溢出箱新增</th></tr></thead>
+            <tbody></tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- ============ 04 库存盘点 ============ -->
+      <section class="sec hidden" id="sec-inventory">
+        <header class="sec-head">
+          <span class="sec-no">04</span>
+          <h2 class="sec-title">库存盘点</h2>
+          <span class="list-summary">开箱识别：遍历源箱 / 目标箱 / 溢出箱并统计物品</span>
+        </header>
+        <div class="toolbar">
+          <label class="form-label" style="flex-direction:row;align-items:center;display:flex;gap:8px">选择实例
+            <select id="inv-bot" class="select" style="width:auto"></select>
+          </label>
+          <button id="inv-audit" class="btn btn-sm btn-accent">开始盘点（开箱识别）</button>
+          <button id="inv-refresh" class="btn btn-sm">刷新结果</button>
+          <span id="inv-result" class="command-result"></span>
+        </div>
+        <div id="inv-view" class="inv-view"></div>
+      </section>
+
+      <!-- ============ 05 聊天与指令控制台 ============ -->
+      <section class="sec hidden" id="sec-chat">
+        <header class="sec-head">
+          <span class="sec-no">05</span>
+          <h2 class="sec-title">聊天与指令控制台</h2>
+          <span class="list-summary">游戏聊天消息（实时转发）+ 指令下发</span>
+        </header>
+        <div class="toolbar">
+          <label class="form-label" style="flex-direction:row;align-items:center;display:flex;gap:8px">目标实例
+            <select id="chat-bot" class="select" style="width:auto"></select>
+          </label>
+          <form id="chat-form" class="command-form" style="flex:1">
+            <input id="chat-input" class="input mono-input" placeholder="指令或聊天，如 reclassify / store on / /say hello" autocomplete="off">
+            <button type="submit" class="btn btn-primary">发送</button>
+          </form>
+        </div>
+        <div class="config-toolbar">
+          <button class="btn btn-sm" data-chat-cmd="store on">入库开</button>
+          <button class="btn btn-sm" data-chat-cmd="store off">入库关</button>
+          <button class="btn btn-sm btn-accent" data-chat-cmd="reclassify">重分类</button>
+          <button class="btn btn-sm" data-chat-cmd="pause">暂停</button>
+          <button class="btn btn-sm" data-chat-cmd="resume">恢复</button>
+          <button class="btn btn-sm" data-chat-cmd="reload">重载配置</button>
+          <button class="btn btn-sm btn-danger" data-chat-cmd="stop">停止任务</button>
+          <span id="chat-result" class="command-result"></span>
+        </div>
+        <div class="log-box" id="chat-box" style="height:340px"></div>
+      </section>
+
+      <!-- ============ 06 配置总览 ============ -->
+      <section class="sec hidden" id="sec-configs">
+        <header class="sec-head">
+          <span class="sec-no">06</span>
+          <h2 class="sec-title">配置</h2>
+          <span class="list-summary">各 bot 箱子区域配置总览（编辑请进入实例详情 → 配置）</span>
+        </header>
+        <div id="configs-view"></div>
+      </section>
+
+      <!-- ============ 07 系统设置 ============ -->
+      <section class="sec hidden" id="sec-settings">
+        <header class="sec-head">
+          <span class="sec-no">07</span>
+          <h2 class="sec-title">系统设置</h2>
+          <span class="list-summary">config/system.json</span>
+        </header>
+
+        <div class="panel-title">服务器连接</div>
+        <div class="config-form">
+          <label class="form-label">host<input id="set-host" class="input mono-input" placeholder="127.0.0.1"></label>
+          <label class="form-label">port<input id="set-port" type="number" class="input" placeholder="25565"></label>
+          <label class="form-label">username<input id="set-username" class="input mono-input" placeholder="StorageBot1"></label>
+          <label class="form-label">auth<select id="set-auth" class="select"><option value="offline">offline</option><option value="microsoft">microsoft</option></select></label>
+          <label class="form-label">version<input id="set-version" class="input mono-input" placeholder="1.21.1"></label>
+          <div class="form-label" style="display:flex;align-items:flex-end">
+            <button id="set-apply-server" class="btn btn-sm" title="把上方服务器连接写入所有实例并重启">应用到实例并重启</button>
+          </div>
+        </div>
+
+        <div class="panel-title" style="margin-top:18px">AI API</div>
+        <div class="config-form">
+          <label class="form-label">启用 AI
+            <select id="set-ai-enabled" class="select"><option value="true">启用</option><option value="false">关闭</option></select>
+          </label>
+          <label class="form-label">apiKey<input id="set-ai-key" class="input mono-input" placeholder="sk-..."></label>
+          <label class="form-label">baseUrl<input id="set-ai-base" class="input mono-input" placeholder="https://api.openai.com/v1"></label>
+          <label class="form-label">model<input id="set-ai-model" class="input mono-input" placeholder="gpt-4o-mini"></label>
+        </div>
+
+        <div class="panel-title" style="margin-top:18px">行为参数</div>
+        <div class="config-form">
+          <label class="form-label">batchSize（每批取物数量）<input id="set-batch" type="number" class="input" placeholder="64"></label>
+          <label class="form-label">freeSlotThreshold（背包空位阈值）<input id="set-free" type="number" class="input" placeholder="6"></label>
+          <label class="form-label">启动自动入库
+            <select id="set-autostore" class="select"><option value="true">开启</option><option value="false">关闭</option></select>
+          </label>
+        </div>
+
+        <div class="panel-title" style="margin-top:18px">扫描区域（仓库地图与扫描用）</div>
+        <div id="set-areas" class="areas-editor"></div>
+        <button id="set-area-add" class="btn btn-sm" style="margin-top:8px">＋ 添加区域</button>
+
+        <div class="config-toolbar" style="margin-top:14px">
+          <button id="set-save" class="btn btn-primary">保存系统设置</button>
+          <span id="set-result" class="command-result"></span>
+        </div>
+      </section>
+
+      <!-- ============ 08 日志 ============ -->
+      <section class="sec hidden" id="sec-logs">
+        <header class="sec-head">
+          <span class="sec-no">08</span>
+          <h2 class="sec-title">日志</h2>
+          <span class="list-summary">全部 bot 实时日志</span>
+        </header>
+        <div class="config-toolbar">
+          <button id="btn-clear-log-all" class="btn btn-sm">清空</button>
+          <label class="check-all"><input type="checkbox" id="chk-auto-all" checked><span>自动滚动</span></label>
+        </div>
+        <div id="log-box-all" class="log-box"></div>
+      </section>
+
+    </main>
+  </div>
+
+  <!-- 新建实例弹层 -->
+  <div id="add-overlay" class="overlay hidden">
+    <div class="modal">
+      <div class="modal-head">新建 Bot 实例</div>
+      <div class="config-form">
+        <label class="form-label">id（唯一标识）<input id="add-id" class="input mono-input" placeholder="bot2"></label>
+        <label class="form-label">服务器地址 · host<input id="add-host" class="input mono-input" placeholder="127.0.0.1"></label>
+        <label class="form-label">端口 · port<input id="add-port" type="number" class="input" value="25565"></label>
+        <label class="form-label">游戏名 · username<input id="add-username" class="input mono-input" placeholder="StorageBot2"></label>
+        <label class="form-label">鉴权 · auth<select id="add-auth" class="select"><option value="offline">offline</option><option value="microsoft">microsoft</option></select></label>
+        <label class="form-label">版本 · version<input id="add-version" class="input mono-input" placeholder="1.21.1"></label>
+        <label class="form-label">信任玩家（逗号分隔）<input id="add-trusted" class="input mono-input" placeholder="Steve"></label>
+      </div>
+      <div class="modal-actions">
+        <button id="add-cancel" class="btn btn-ghost">取消</button>
+        <button id="add-ok" class="btn btn-primary">创建并启动</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

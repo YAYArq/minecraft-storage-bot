@@ -1,0 +1,22 @@
+{
+  "name": "minecraft-storage-bot",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Minecraft 仓库分类 Bot：基于 mineflayer + mineflayer-x 的多 bot 实例架构，自动入库 / 分批重分类 / 溢出箱 / 丢弃管理，带 WebSocket 简体中文面板。",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "check": "node --check src/bot/StorageBot.js && node --check src/bot/BotManager.js && node --check src/bot/ChestService.js && node --check src/bot/ItemClassifier.js && node --check src/bot/ReclassifyTask.js && node --check src/config/ConfigStore.js && node --check src/server/WsServer.js && node --check index.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "minecraft-data": "3.105.0",
+    "mineflayer": "4.35.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "vec3": "0.1.10",
+    "ws": "8.18.0"
+  }
+}
