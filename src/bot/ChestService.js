@@ -103,20 +103,30 @@ class ChestService {
 
   /**
    * 寻路到箱子旁并打开容器窗口。
-   * 参考 APRme/MULTIBOT 的寻路方式：GoalNear(箱子坐标, 1)，pathfinder 自动停在箱子 1 格内的可达位置。
-   * 开箱前检查实际距离：必须够得到箱子（≤2.0 格，MC 交互 reach 3 格内），否则拒绝开箱（防止隔着很远/隔层远程点击）。
+   * 与玩家手动操作等价：MC 生存模式交互距离（reach）为 3 格，只要进入 3 格内即可开箱，
+   * 不必紧贴箱子（此前 GoalNear(1) + ≤2 格防护导致箱子被包围时 PATH_FAILED 放弃，而玩家能点到）。
+   * 寻路失败（路径不可达）不立即放弃：若当前位置已在交互距离内，仍直接开箱。
    * @returns {Promise<import('prismarine-windows').Window>}
    */
   async openContainerAt(pos) {
-    // 标准寻路（apr 风格）：GoalNear(箱子坐标, 1)，pathfinder 自动停在箱子 1 格内的可达位置
-    await this.goto(pos, 1);
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 距离防护：必须够得到箱子才开箱（MC 交互 reach 为 3 格，2.0 内隔一格亦可开箱；
-    // 相邻格中心距离约 1.0，斜对角约 1.41，隔一格约 1.5~2.1）
+    // 先尝试贴近箱子（1.5 格内）；紧贴不了再放宽到 3 格内（MC reach）；再失败则靠下方距离检查兜底
+    let gotoFailed = true;
+    try {
+      await this.goto(pos, 1.5);
+      gotoFailed = false;
+    } catch (err) {
+      try {
+        await this.goto(pos, 3);
+        gotoFailed = false;
+      } catch (err2) { /* 最终兜底：不抛，看当前距离是否已够得着 */ }
+    }
+    // 距离防护：必须在 MC 交互 reach（3 格）内，否则拒绝（防止隔着很远/隔层远程点击）。
+    // 服务器按"眼睛到箱子"判定约 3 格，方块中心距离 ≤3.0 时通常可开。
     const dist = this.bot.entity.position.distanceTo(target);
-    if (dist > 2.0) {
+    if (dist > 3.0) {
       throw Object.assign(
-        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) ${dist.toFixed(1)} 格，距离过远，拒绝开箱`),
+        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) ${dist.toFixed(1)} 格，超出交互距离（reach 3 格）${gotoFailed ? '且寻路失败' : ''}，拒绝开箱`),
         { code: 'TOO_FAR', pos }
       );
     }

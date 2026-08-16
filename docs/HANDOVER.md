@@ -106,7 +106,7 @@ test/                        node:test 单元测试（npm test）
 
 1. **mineflayer-x 必须 `require()` 一次再 `mineflayer.createBot`**（加载时补丁），且**必须用 `require('minecraft-data')('26.1')`** 获取数据（非 26.1 版本 no-op）。
 2. **不能删 `src/vendor/mineflayer-x/`**——npm 上没有 mineflayer-x 包。
-3. **开箱前必须距离防护**（≤2.0 格，MC 交互 reach 3 格内），否则会隔着远距离点箱子（服务器可能开错/开不到）。曾为 ≤1.6 格，2026-08 因目标箱密集排列（箱子墙）放宽到 2.0。
+3. **开箱距离与寻路**：开箱只需进入 MC 交互 reach（3 格）内即可（与玩家手动操作等价），不必紧贴箱子——`openContainerAt` 先尝试贴近（GoalNear 1.5）再放宽到 3，寻路失败（箱子被方块包围）时只要已在 3 格内仍直接开箱。曾为 ≤1.6 格、后 2.0 格（2026-08 因目标箱密集排列放宽），最终按 reach 3 格实现。**距离防护仍保留**：>3 格拒绝（防隔层/超距远程点击）。
 4. **自动入库/任务/盘点都走串行队列**（`bot.enqueue`），禁止并发开箱/寻路（会互相打断导致 "goal was changed"）。
 5. **寻路参数**：`canDig=false`、`placeCost=100`（不挖不搭桥）、`NoDiagonalMovements`（只走直线）。改寻路前先看用户明确要求（用户曾要求"完全照 apr + mineflayer-pathfinder 插件"，后又要求删除自造的候选格微调——**当前实现就是纯 pathfinder，不要加回自造寻路**）。
 6. **配置保存会 normalize**：物品引用统一转 `minecraft:name`，category 自动中文。用户面板里能看到规范化结果。
