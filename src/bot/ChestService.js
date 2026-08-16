@@ -104,18 +104,19 @@ class ChestService {
   /**
    * 寻路到箱子旁并打开容器窗口。
    * 参考 APRme/MULTIBOT 的寻路方式：GoalNear(箱子坐标, 1)，pathfinder 自动停在箱子 1 格内的可达位置。
-   * 开箱前检查实际距离：必须紧贴箱子（≤1.6 格），否则拒绝开箱（防止隔着很远/隔层远程点击）。
+   * 开箱前检查实际距离：必须够得到箱子（≤2.0 格，MC 交互 reach 3 格内），否则拒绝开箱（防止隔着很远/隔层远程点击）。
    * @returns {Promise<import('prismarine-windows').Window>}
    */
   async openContainerAt(pos) {
     // 标准寻路（apr 风格）：GoalNear(箱子坐标, 1)，pathfinder 自动停在箱子 1 格内的可达位置
     await this.goto(pos, 1);
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 距离防护：不紧贴箱子不开箱（相邻格中心距离约 1.0，斜对角约 1.41）
+    // 距离防护：必须够得到箱子才开箱（MC 交互 reach 为 3 格，2.0 内隔一格亦可开箱；
+    // 相邻格中心距离约 1.0，斜对角约 1.41，隔一格约 1.5~2.1）
     const dist = this.bot.entity.position.distanceTo(target);
-    if (dist > 1.6) {
+    if (dist > 2.0) {
       throw Object.assign(
-        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) ${dist.toFixed(1)} 格，未紧贴，拒绝开箱`),
+        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) ${dist.toFixed(1)} 格，距离过远，拒绝开箱`),
         { code: 'TOO_FAR', pos }
       );
     }

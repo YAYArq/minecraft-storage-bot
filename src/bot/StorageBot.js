@@ -394,22 +394,30 @@ class StorageBot {
       const boxes = await this.resolveSourceBoxes();
       if (!boxes.length) return;
       let hasItems = false;
-      for (const sb of boxes) {
-        let window = null;
+      // 开箱循环放入串行队列：与自动入库/重分类/盘点完全串行，
+      // 避免并发寻路互相打断（此前 bug：定时源箱检查打断自动入库 -> "goal was changed"、走一半就返回）
+      await new Promise((resolve) => this.enqueue(async () => {
         try {
-          window = await this.chest.openContainerAt(sb);
-          const total = window.containerItems().reduce((s, it) => s + it.count, 0);
-          if (total > 0) {
-            this.logger.info(`[定时源箱检查] 源箱 (${sb.key}) 有 ${total} 件物品`);
-            hasItems = true;
-            break;
+          for (const sb of boxes) {
+            let window = null;
+            try {
+              window = await this.chest.openContainerAt(sb);
+              const total = window.containerItems().reduce((s, it) => s + it.count, 0);
+              if (total > 0) {
+                this.logger.info(`[定时源箱检查] 源箱 (${sb.key}) 有 ${total} 件物品`);
+                hasItems = true;
+                break;
+              }
+            } catch (err) {
+              this.logger.warn(`[定时源箱检查] 源箱 (${sb.key}) 打不开，跳过: ${err.message}`);
+            } finally {
+              if (window) this.chest.close(window);
+            }
           }
-        } catch (err) {
-          this.logger.warn(`[定时源箱检查] 源箱 (${sb.key}) 打不开，跳过: ${err.message}`);
         } finally {
-          if (window) this.chest.close(window);
+          resolve();
         }
-      }
+      }));
       if (hasItems) {
         this.logger.info('[定时源箱检查] 检测到源箱有物品，启动批量重分类处理');
         this.task.start();
