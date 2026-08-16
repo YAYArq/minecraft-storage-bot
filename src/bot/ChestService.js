@@ -110,26 +110,29 @@ class ChestService {
    */
   async openContainerAt(pos) {
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 先尝试贴近箱子（1.5 格内）；紧贴不了再放宽到 3 格内（MC reach）；再失败则靠下方距离检查兜底
-    let gotoFailed = true;
+    // 先尝试贴近箱子（1.5 格内）；紧贴不了再放宽到 2.5 格内；再失败则靠下方 reach 检查兜底
+    // （不放宽到 3：边缘位置按服务器"眼睛到箱子"判定可能打不开，与其硬开不如明确失败）
     try {
       await this.goto(pos, 1.5);
-      gotoFailed = false;
     } catch (err) {
       try {
-        await this.goto(pos, 3);
-        gotoFailed = false;
-      } catch (err2) { /* 最终兜底：不抛，看当前距离是否已够得着 */ }
+        await this.goto(pos, 2.5);
+      } catch (err2) { /* 兜底：不抛，看当前眼睛到箱子的距离是否已在服务器 reach 内 */ }
     }
-    // 距离防护：必须在 MC 交互 reach（3 格）内，否则拒绝（防止隔着很远/隔层远程点击）。
-    // 服务器按"眼睛到箱子"判定约 3 格，方块中心距离 ≤3.0 时通常可开。
-    const dist = this.bot.entity.position.distanceTo(target);
-    if (dist > 3.0) {
+    // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
+    // 用"眼睛到包围盒"而非"中心距"：悬空箱/高处的箱子从下方 2~3 格也能点到（玩家正常走路就能点到）。
+    const eye = this.bot.entity.position.offset(0, 1.62, 0); // 生存模式眼睛高度
+    const dx = Math.max(target.x - eye.x, 0, eye.x - (target.x + 1));
+    const dy = Math.max(target.y - eye.y, 0, eye.y - (target.y + 1));
+    const dz = Math.max(target.z - eye.z, 0, eye.z - (target.z + 1));
+    const reachDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    if (reachDist > 2.9) { // 服务器 3.0，留 0.1 余量
       throw Object.assign(
-        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) ${dist.toFixed(1)} 格，超出交互距离（reach 3 格）${gotoFailed ? '且寻路失败' : ''}，拒绝开箱`),
+        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) 眼睛 ${reachDist.toFixed(1)} 格，超出服务器交互距离（reach 3 格），拒绝开箱`),
         { code: 'TOO_FAR', pos }
       );
     }
+    const dist = this.bot.entity.position.distanceTo(target);
     // 等待方块数据就绪：刚寻路到达时区块可能仍在加载，blockAt 会短暂返回 air / undefined
     let block = this.bot.blockAt(target);
     for (let i = 0; i < 15 && (!block || !isContainerBlock(block)); i++) {
@@ -249,8 +252,12 @@ class ChestService {
       await window.deposit(itemType, item.metadata || 0, toMove);
       return toMove;
     } catch (err) {
+      const msg = err && err.message ? err.message : '';
+      // 容器满导致 deposit 找不到可放槽位（destination full）：视为"没放进去"返回 0，
+      // 由上层转溢出箱（原实现抛 DEPOSIT_FAILED 会暂停整个任务，物品滞留背包）
+      if (/destination full|full/i.test(msg)) return 0;
       throw Object.assign(
-        new Error(`存入容器失败 (${item.name} x${toMove}): ${err && err.message ? err.message : err}`),
+        new Error(`存入容器失败 (${item.name} x${toMove}): ${msg}`),
         { code: 'DEPOSIT_FAILED' }
       );
     }
