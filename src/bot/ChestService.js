@@ -179,11 +179,25 @@ class ChestService {
 
   // ---------------- 容量计算 ----------------
 
+  /**
+   * 从背包中找到该物品的实际 type（服务器下发值）。
+   * deposit/withdraw 只接受服务器下发的数字 id；minecraft-data 表 id 与服务器注册表 id
+   * 在实验版本（26.1.x）可能不一致，必须用背包中物品的实际 type，否则报
+   * "Can't find X in slots [54 - 90]"。
+   */
+  _actualType(item) {
+    if (item && typeof item.type === 'number') return item.type; // 直接传背包物品时
+    const inv = this.bot && this.bot.inventory ? this.bot.inventory.items() : [];
+    const found = item && inv.find(i => i.name === item.name);
+    if (found && typeof found.type === 'number') return found.type;
+    return item ? (typeof item.id === 'number' ? item.id : item.name) : null;
+  }
+
   /** 容器对该物品的剩余可容纳数量（空槽 + 已有堆叠的剩余空间） */
   containerCapacityFor(window, item) {
     const stackSize = item.stackSize || 64;
-    // 物品匹配用服务器下发的 type（优先），其次 minecraft-data id
-    const typeId = typeof item.type === 'number' ? item.type : item.id;
+    // 物品匹配用背包中该物品的实际 type（服务器下发），其次 minecraft-data id
+    const typeId = this._actualType(item);
     let space = 0;
     for (const slot of window.slots) {
       if (!slot) {
@@ -247,8 +261,9 @@ class ChestService {
     if (space <= 0) return 0; // 容器已满 / 无该类物品空位
     const toMove = Math.min(count, space);
     try {
-      // itemType 必须为数字 id（mineflayer deposit/withdraw 只接受数字 id）
-      const itemType = typeof item.id === 'number' ? item.id : (item.type !== undefined ? item.type : item.name);
+      // itemType 必须为数字 id（mineflayer deposit/withdraw 只接受数字 id）；
+      // 用背包中该物品的实际 type（服务器下发），数据表 id 可能与服务器注册表不一致
+      const itemType = this._actualType(item);
       await window.deposit(itemType, item.metadata || 0, toMove);
       return toMove;
     } catch (err) {
