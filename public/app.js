@@ -410,6 +410,26 @@ function bindAreaOps() {
   };
 }
 
+/**
+ * 从 /setblock 指令（MC F3+I 复制）中提取物品 id：
+ *   /setblock 65 72 86 minecraft:chest[facing=south,type=left]{Items:[]} -> minecraft:chest
+ * 去掉坐标、方块属性 [..] 与 NBT {..}，多个指令/多行合并去重。
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractSetblockIds(text) {
+  const ids = [];
+  if (!text) return ids;
+  // 匹配 <命名空间>:<id>（如 minecraft:chest），NBT 里的 {id:"minecraft:xxx"} 也会被捕获（同为物品 id）
+  const re = /[a-z0-9_]+:[a-z0-9_]+/g;
+  let m;
+  while ((m = re.exec(text)) !== null) {
+    const id = m[0];
+    if (!ids.includes(id)) ids.push(id);
+  }
+  return ids;
+}
+
 function renderVis() {
   if (!state.vis) return;
   const row = (i, cls, inner, del) => `
@@ -429,7 +449,8 @@ function renderVis() {
         ? `<span class="chip" style="margin-right:6px">区域 ${t.min.x},${t.min.y},${t.min.z} ~ ${t.max.x},${t.max.y},${t.max.z}</span>`
         : box3(i, 'targets', t)}
       <input class="input mono-input vis-input vis-cat" data-i="${i}" placeholder="分类名（如 钻石）" value="${esc(t.category)}">
-      <input class="input mono-input vis-input vis-items" data-i="${i}" placeholder="物品（逗号分隔，如 钻石,diamond,264）" value="${esc(t.items)}">`, '目标箱')).join('')
+      <input class="input mono-input vis-input vis-items" data-i="${i}" placeholder="粘贴 /setblock 指令后点「识别」自动提取物品 id" value="${esc(t.items)}">
+      <button class="btn btn-sm vis-setblock" data-i="${i}" title="从 /setblock 指令中提取物品 id（F3+I 复制），去掉坐标/属性/NBT">识别</button>`, '目标箱')).join('')
     || '<div class="panel-hint">暂无目标箱</div>';
   $('vis-ovfs').innerHTML = state.vis.overflows.pts.map((v, i) => row(i, 'overflows', box3(i, 'overflows', v), '溢出箱')).join('')
     || '<div class="panel-hint">暂无溢出箱</div>';
@@ -437,6 +458,23 @@ function renderVis() {
   // 行内输入同步到 state（删除/保存时读取）
   document.querySelectorAll('.vis-input').forEach(inp => {
     inp.oninput = () => syncVisRow();
+  });
+  // 「识别」按钮：从 /setblock 指令（F3+I 复制）中提取物品 id，去掉坐标/属性/NBT
+  document.querySelectorAll('.vis-setblock').forEach(btn => {
+    btn.onclick = () => {
+      const i = Number(btn.dataset.i);
+      const inp = document.querySelector(`.vis-items[data-i="${i}"]`);
+      if (!inp) return;
+      const ids = extractSetblockIds(inp.value);
+      if (!ids.length) {
+        inp.value = '';
+        showAreaResult(false, '未识别到物品 id（请粘贴 /setblock 指令，如 /setblock 1 2 3 minecraft:chest[...]{...}）');
+        return;
+      }
+      inp.value = ids.join(',');
+      syncVisRow();
+      showAreaResult(true, `已识别 ${ids.length} 个物品: ${ids.join(', ')}`);
+    };
   });
   document.querySelectorAll('.vis-del').forEach(btn => {
     btn.onclick = () => {
