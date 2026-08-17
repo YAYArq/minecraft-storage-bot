@@ -153,7 +153,7 @@ class ChestService {
       try {
         await this.gotoXZ(target.x, target.z);
       } catch (err2) {
-        this.logger.debug(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 水平寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
+        this.logger.warn(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 水平寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
       }
     }
     // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
@@ -167,8 +167,9 @@ class ChestService {
     };
     let jumped = false;
     let reachDist = reachOf();
-    if (reachDist > 2.9 && this.bot.entity.onGround) {
-      // 用户授权：允许跳起来开箱（原地跳起使眼睛升高，够到高处/悬空箱子，不必跳到方块上）
+    if (reachDist > 2.9) {
+      // 允许跳起来开箱（用户授权）：原地跳起使眼睛升高，够到高处/悬空箱子，不必跳到方块上。
+      // 不依赖 onGround 判断：刚寻路到达时可能尚未落地/站在台阶上状态未刷新（曾致 3.1 格差一点不触发）
       this.bot.setControlState('jump', true);
       await new Promise(resolve => setTimeout(resolve, 300)); // 等跳起到峰值附近
       jumped = true;
