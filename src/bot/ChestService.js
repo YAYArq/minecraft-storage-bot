@@ -1,6 +1,6 @@
 'use strict';
 
-const { Movements, goals: { GoalNear } } = require('mineflayer-pathfinder');
+const { Movements, goals: { GoalNear, GoalXZ } } = require('mineflayer-pathfinder');
 const vec3 = require('vec3');
 
 /**
@@ -65,6 +65,20 @@ class ChestService {
   // ---------------- 寻路 ----------------
 
   /**
+   * 配置寻路参数（直线不斜线 + 允许跳跃 + 不挖不搭）。
+   * @param {boolean} [sprint=false]
+   */
+  _prepareMovements(sprint = false) {
+    // 直线寻路（不走斜线）+ 不破坏方块 + 不放方块（搭桥/垫脚成本设为 100，路径成本超阈值被丢弃）
+    const defaultMove = new NoDiagonalMovements(this.bot);
+    defaultMove.allowSprinting = sprint === true;
+    defaultMove.allowParkour = true; // 允许跳跃（跳过 1 格空隙/跳上台阶，用户授权）
+    defaultMove.canDig = false; // 不破坏任何方块
+    defaultMove.placeCost = 100; // 禁止放方块（搭桥/垫脚路径成本 > 100 不可行）
+    this.bot.pathfinder.setMovements(defaultMove);
+  }
+
+  /**
    * 寻路到指定坐标（完全参考 APRme/MULTIBOT MovementFeature）：
    *   标准 Movements + setGoal(new GoalNear(x, y, z, radius))，等待到达。
    * @param {{x:number,y:number,z:number}} pos
@@ -81,13 +95,7 @@ class ChestService {
     if (!this.bot.pathfinder) {
       throw Object.assign(new Error('pathfinder 插件未加载'), { code: 'NO_PATHFINDER' });
     }
-    // 直线寻路（不走斜线）+ 不破坏方块 + 不放方块（搭桥/垫脚成本设为 100，路径成本超阈值被丢弃）
-    const defaultMove = new NoDiagonalMovements(this.bot);
-    defaultMove.allowSprinting = sprint === true;
-    defaultMove.allowParkour = true; // 允许跳跃（跳过 1 格空隙/跳上台阶，用户授权）
-    defaultMove.canDig = false; // 不破坏任何方块
-    defaultMove.placeCost = 100; // 禁止放方块（搭桥/垫脚路径成本 > 100 不可行）
-    this.bot.pathfinder.setMovements(defaultMove);
+    this._prepareMovements(sprint);
     this.logger.debug(`寻路 -> (${pos.x}, ${pos.y}, ${pos.z})`);
     try {
       await this.bot.pathfinder.goto(new GoalNear(target.x, target.y, target.z, radius));
@@ -96,6 +104,31 @@ class ChestService {
       throw Object.assign(
         new Error(`寻路失败 (${pos.x},${pos.y},${pos.z}): ${code} ${err && err.message ? err.message : ''}`),
         { code, pos }
+      );
+    }
+  }
+
+  /**
+   * 水平寻路到指定 XZ（GoalXZ）：垂直由地形决定，落到该列最近的可站地面。
+   * 用于悬空/高处的箱子——走到箱子正下方地面，配合跳起开箱即可够到
+   * （GoalNear 半径太大时会停在边缘格、太小又找不到正下方格，GoalXZ 最接近玩家操作）。
+   * @param {number} x
+   * @param {number} z
+   * @param {boolean} [sprint=false]
+   */
+  async gotoXZ(x, z, sprint = false) {
+    if (!this.bot.pathfinder) {
+      throw Object.assign(new Error('pathfinder 插件未加载'), { code: 'NO_PATHFINDER' });
+    }
+    this._prepareMovements(sprint);
+    this.logger.debug(`寻路(水平) -> (${x}, ${z})`);
+    try {
+      await this.bot.pathfinder.goto(new GoalXZ(x, z));
+    } catch (err) {
+      const code = err && err.code ? err.code : 'PATH_FAILED';
+      throw Object.assign(
+        new Error(`水平寻路失败 (${x},${z}): ${code} ${err && err.message ? err.message : ''}`),
+        { code }
       );
     }
   }
@@ -111,15 +144,16 @@ class ChestService {
    */
   async openContainerAt(pos) {
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 先尝试贴近箱子（1.5 格内）；失败放宽到 6.5 格——悬空/高处的箱子正下方地面格
-    // 可距中心约 6 格（如 (67,79,135) 下方 y=73 地面），站正下方地面+跳起开箱即可够到
+    // 先尝试贴近箱子（1.5 格内）；失败则水平寻路到箱子正下方（GoalXZ，垂直由地面决定）——
+    // 悬空/高处箱子正下方地面格可距中心 6+ 格，GoalNear 半径小找不到、半径大停在边缘，
+    // GoalXZ 让 bot 站到箱子正下方，配合下方"跳起开箱"即可够到（与玩家手动操作一致）
     try {
       await this.goto(pos, 1.5);
     } catch (err) {
       try {
-        await this.goto(pos, 6.5);
+        await this.gotoXZ(target.x, target.z);
       } catch (err2) {
-        this.logger.debug(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
+        this.logger.debug(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 水平寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
       }
     }
     // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
