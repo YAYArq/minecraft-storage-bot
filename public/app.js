@@ -593,9 +593,12 @@ function drawMap(cfg, audit, botId) {
     return '箱子';
   };
   // 等距立方体贴图拼贴：把贴图源矩形 (sx,sy,sw,sh) 仿射映射到目标四边形 (p0,p1,p2,p3)
+  // 注意：transform 作用于 <image> 元素整体（含 x/y 定位），矩阵须计入源区域偏移 (sx,sy)
   const face = (href, sx, sy, sw, sh, p0, p1, p2, p3) => {
-    const a = (p1.x - p0.x) / sw, c = (p2.x - p0.x) / sh, e = p0.x;
-    const b = (p1.y - p0.y) / sw, d = (p2.y - p0.y) / sh, f = p0.y;
+    const a = (p1.x - p0.x) / sw, c = (p2.x - p0.x) / sh;
+    const b = (p1.y - p0.y) / sw, d = (p2.y - p0.y) / sh;
+    const e = p0.x - a * sx - c * sy;
+    const f = p0.y - b * sx - d * sy;
     return `<image href="/textures/${href}" x="${sx}" y="${sy}" width="${sw}" height="${sh}" transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" preserveAspectRatio="none"/>`;
   };
   // 等距方块（顶面 + 右面 + 左面），按容器类型用真实 MC 贴图或配色兜底
@@ -612,9 +615,11 @@ function drawMap(cfg, audit, botId) {
         face('barrel_side.png', 0, 0, 16, 16, ...P.left);
     }
     if (blk && blk.includes('shulker')) {
-      return face('shulker_box.png', 14, 0, 16, 16, ...P.top) +
-        face('shulker_box.png', 14, 28, 14, 16, ...P.right) +
-        face('shulker_box.png', 28, 14, 14, 16, ...P.left);
+      // 16x16 顶面贴图 + 紫色侧面
+      const colors = ['#9c62c9', '#b98ae0', '#7a47a3'];
+      return face('shulker_box.png', 0, 0, 16, 16, ...P.top) +
+        `<path d="M ${P.right[0].x} ${P.right[0].y} L ${P.right[1].x} ${P.right[1].y} L ${P.right[3].x} ${P.right[3].y} L ${P.right[2].x} ${P.right[2].y} Z" fill="${colors[0]}"/>` +
+        `<path d="M ${P.left[0].x} ${P.left[0].y} L ${P.left[1].x} ${P.left[1].y} L ${P.left[3].x} ${P.left[3].y} L ${P.left[2].x} ${P.left[2].y} Z" fill="${colors[2]}"/>`;
     }
     if (blk && (blk.includes('hopper') || blk.includes('dispenser') || blk.includes('dropper'))) {
       // 漏斗/发射器/投掷器：顶面用贴图，侧面配色兜底
