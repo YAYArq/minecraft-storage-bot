@@ -735,6 +735,7 @@ class StorageBot {
           window = await this.chest.openContainerAt(ob);
           const items = window.containerItems();
           for (const it of items) {
+            if (!it || typeof it.type !== 'number') continue; // 空槽/异常项防护
             const std = this.classifier.itemOf(it);
             if (!std) continue;
             const tgt = await this.matchTargetBoxes(std);
@@ -745,7 +746,7 @@ class StorageBot {
             await this.depositToTargetBox(tgt[0].category, [{ item: it, std }]);
           }
         } catch (err) {
-          logger.error(`[整理] 溢出箱 (${ob.key}) 打开失败: ${err.message}`);
+          logger.error(`[整理] 溢出箱 (${ob.key}) 处理失败: ${err.message}`);
         } finally {
           if (window) this.chest.close(window);
         }
