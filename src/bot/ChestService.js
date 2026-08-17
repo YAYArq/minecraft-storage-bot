@@ -111,14 +111,16 @@ class ChestService {
    */
   async openContainerAt(pos) {
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 先尝试贴近箱子（1.5 格内）；失败放宽到 3.0 格内——覆盖悬空/高处的箱子：
-    // 其最近的可行走格常在正下方（距箱子中心约 3.0 格），2.5 会找不到站格导致 20+ 格远就放弃
+    // 先尝试贴近箱子（1.5 格内）；失败放宽到 6.5 格——悬空/高处的箱子正下方地面格
+    // 可距中心约 6 格（如 (67,79,135) 下方 y=73 地面），站正下方地面+跳起开箱即可够到
     try {
       await this.goto(pos, 1.5);
     } catch (err) {
       try {
-        await this.goto(pos, 3.0);
-      } catch (err2) { /* 兜底：不抛，看当前眼睛到箱子的距离是否已在服务器 reach 内 */ }
+        await this.goto(pos, 6.5);
+      } catch (err2) {
+        this.logger.debug(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
+      }
     }
     // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
     // 用"眼睛到包围盒"而非"中心距"：悬空箱/高处的箱子从下方 2~3 格也能点到。
