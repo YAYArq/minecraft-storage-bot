@@ -166,10 +166,11 @@ class HttpServer {
         );
       }
       if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'boxes' && parts[3] === 'area' && req.method === 'POST') {
-        // POST /api/bots/:id/boxes/area —— 添加源箱/溢出箱条目（单箱或对角区域）
+        // POST /api/bots/:id/boxes/area —— 添加源箱/溢出箱/目标箱条目（单箱或对角区域）
         return this.readBody(req).then(body => {
-          const result = this.manager.addBoxArea(parts[1], body.type, body.entry);
-          return this.json(res, result.ok ? 200 : 400, result);
+          return this.manager.addBoxArea(parts[1], body.type, body.entry).then(result =>
+            this.json(res, result.ok ? 200 : 400, result)
+          );
         });
       }
       if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'boxes' && parts[3] === 'delete' && req.method === 'POST') {

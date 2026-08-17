@@ -168,30 +168,32 @@ class ConfigStore {
         }
         const x = parsed.x, y = parsed.y, z = parsed.z;
         const key = parsed.key;
+        let items = [];
         if (!Array.isArray(tb.items) || tb.items.length === 0) {
-          errors.push(`目标分类箱 ${key} 缺少 items 物品列表`);
-          continue;
-        }
-        // 解析 items 引用（数字 id / minecraft:name / 中文名 / 空格逗号分隔多物品），按物品 id 去重
-        const itemsById = new Map();
-        for (const ref of tb.items) {
-          const resolved = this.resolveRefList(ref);
-          if (resolved.length) {
-            for (const item of resolved) {
-              if (!itemsById.has(item.id)) itemsById.set(item.id, item);
+          // items 允许为空：用户先添加箱子、后台再填物品清单（与区域目标箱一致）
+          warnings.push(`目标分类箱 ${key} 尚未填写物品清单（可在配置中补充）`);
+        } else {
+          // 解析 items 引用（数字 id / minecraft:name / 中文名 / 空格逗号分隔多物品），按物品 id 去重
+          const itemsById = new Map();
+          for (const ref of tb.items) {
+            const resolved = this.resolveRefList(ref);
+            if (resolved.length) {
+              for (const item of resolved) {
+                if (!itemsById.has(item.id)) itemsById.set(item.id, item);
+              }
+            } else {
+              warnings.push(`目标分类箱 ${key} 无法解析物品引用: ${JSON.stringify(ref)}（已忽略）`);
             }
-          } else {
-            warnings.push(`目标分类箱 ${key} 无法解析物品引用: ${JSON.stringify(ref)}（已忽略）`);
           }
-        }
-        const items = [...itemsById.values()];
-        if (items.length === 0) {
-          errors.push(`目标分类箱 ${key} 的 items 全部无法解析`);
-          continue;
+          items = [...itemsById.values()];
+          if (items.length === 0) {
+            errors.push(`目标分类箱 ${key} 的 items 全部无法解析`);
+            continue;
+          }
         }
         targetBoxes.push({
           x, y, z, key,
-          category: typeof tb.category === 'string' && tb.category ? tb.category : items[0].zhName,
+          category: typeof tb.category === 'string' && tb.category ? tb.category : (items[0] ? items[0].zhName : '未分类'),
           items
         });
       }

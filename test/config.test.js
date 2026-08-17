@@ -117,3 +117,20 @@ test('目标分类箱支持对角区域（area），items 允许为空（后台�
   assert.strictEqual(point.category, '铁锭');
   assert.strictEqual(point.items[0].name, 'iron_ingot');
 });
+
+test('point 目标箱 items 允许为空（后台填写），不报错', () => {
+  const json = {
+    ...VALID,
+    targetBoxes: [
+      { x: 150, y: 64, z: 200, category: '待填分类', items: [] },
+      { x: 121, y: 64, z: 200, category: '铁锭', items: ['iron_ingot'] }
+    ]
+  };
+  const store = new ConfigStore(tmpConfig(json), classifier);
+  const parsed = store.load();
+  assert.strictEqual(parsed.targetBoxes.length, 2);
+  const empty = parsed.targetBoxes.find(t => t.key === '150,64,200');
+  assert.strictEqual(empty.category, '待填分类');
+  assert.ok(Array.isArray(empty.items) && empty.items.length === 0, 'items 允许为空');
+  assert.ok(store.loadWarnings.some(w => w.includes('尚未填写物品清单')));
+});

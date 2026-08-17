@@ -320,11 +320,12 @@ class BotManager {
 
   /**
    * 向配置添加对角区域 / 单箱条目（source 源箱 / overflow 溢出箱 / target 分类目标箱），写盘并热重载。
+   * target + 对角区域：扫描区域内每个容器，逐个添加为独立目标箱（每箱独立绑定分类/物品，与上方一致）。
    * @param {string} id
    * @param {'source'|'overflow'|'target'} type
    * @param {object} entry {x,y,z} 或 {min:{x,y,z}, max:{x,y,z}}；target 类型可带 category
    */
-  addBoxArea(id, type, entry) {
+  async addBoxArea(id, type, entry) {
     const bot = this.bots.get(id);
     if (!bot || !bot.store) return { ok: false, message: 'bot 的箱子配置未加载' };
     if (!['source', 'overflow', 'target'].includes(type)) {
@@ -336,6 +337,33 @@ class BotManager {
     const errors = [];
     const parsed = bot.store.constructor.parseBoxEntry(entry, key, errors);
     if (!parsed) return { ok: false, message: errors.join('；') };
+
+    // target + 对角区域：区域内每个箱子作为独立目标箱（每箱独立物品，不是共享一份清单）
+    if (type === 'target' && parsed.type === 'area') {
+      if (bot.connectionState !== 'online') {
+        return { ok: false, message: 'bot 未在线，无法扫描区域内容器；请先用单个坐标添加或等 bot 上线' };
+      }
+      const cat = (entry && entry.category) || '未分类';
+      const boxes = await bot.enqueue(() => bot.scanArea(parsed.min, parsed.max));
+      if (!boxes.length) return { ok: false, message: `区域 ${parsed.key} 内未发现容器（请确认 bot 已走到该区域附近）` };
+      const existing = new Set();
+      for (const b of json.targetBoxes) {
+        const p = bot.store.constructor.parseBoxEntry(b, key, []);
+        if (p) existing.add(p.key);
+      }
+      let added = 0;
+      for (const b of boxes) {
+        if (existing.has(b.key)) continue;
+        json.targetBoxes.push({ x: b.x, y: b.y, z: b.z, category: cat, items: [] });
+        existing.add(b.key);
+        added += 1;
+      }
+      if (!added) return { ok: false, message: '区域内箱子的坐标已全部存在于目标分类箱配置' };
+      const result = this.updateStorageConfig(id, json);
+      if (result.ok) result.message = `已添加分类目标箱 ${added} 个（区域 ${parsed.key}，分类：${cat}）——物品清单请在配置中逐个填写`;
+      return result;
+    }
+
     // 去重：相同坐标 / 相同对角区域不重复添加
     const dup = json[key].some(b => {
       const p = bot.store.constructor.parseBoxEntry(b, key, []);
