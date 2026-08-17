@@ -582,17 +582,6 @@ function drawMap(cfg, audit, botId) {
   const X = (x) => pad + (x - minX) * sx;
   const Z = (z) => pad + (z - minZ) * sz;
 
-  // 容器方块类型 -> 立体配色（顶/侧/暗侧），效果接近 MC 等距物品图标
-  const paletteOf = (name) => {
-    if (!name) return ['#b07b4e', '#d39a6a', '#8a5a36'];
-    if (name.includes('barrel')) return ['#8a6a42', '#a9875a', '#6b4f2f'];
-    if (name.includes('shulker')) return ['#9c62c9', '#b98ae0', '#7a47a3'];
-    if (name.includes('hopper')) return ['#8a8a8a', '#a9a9a9', '#6b6b6b'];
-    if (name.includes('dispenser')) return ['#9b9b9b', '#bcbcbc', '#7a7a7a'];
-    if (name.includes('dropper')) return ['#767676', '#929292', '#5a5a5a'];
-    if (name.includes('trapped_chest')) return ['#a04a2f', '#c96a45', '#7a3620'];
-    return ['#b07b4e', '#d39a6a', '#8a5a36'];
-  };
   const typeName = (name) => {
     if (!name) return '箱子';
     if (name.includes('barrel')) return '木桶';
@@ -603,12 +592,45 @@ function drawMap(cfg, audit, botId) {
     if (name.includes('trapped_chest')) return '陷阱箱';
     return '箱子';
   };
-  // 等距立方体（顶面 + 左右侧面）
-  const isoBox = (cx, cy, w, colors) => {
+  // 等距立方体贴图拼贴：把贴图源矩形 (sx,sy,sw,sh) 仿射映射到目标四边形 (p0,p1,p2,p3)
+  const face = (href, sx, sy, sw, sh, p0, p1, p2, p3) => {
+    const a = (p1.x - p0.x) / sw, c = (p2.x - p0.x) / sh, e = p0.x;
+    const b = (p1.y - p0.y) / sw, d = (p2.y - p0.y) / sh, f = p0.y;
+    return `<image href="/textures/${href}" x="${sx}" y="${sy}" width="${sw}" height="${sh}" transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" preserveAspectRatio="none"/>`;
+  };
+  // 等距方块（顶面 + 右面 + 左面），按容器类型用真实 MC 贴图或配色兜底
+  const texBox = (cx, cy, w, blk) => {
     const h = w * 0.55;
-    return `<path d="M ${cx} ${cy - h} L ${cx + w} ${cy - h / 2} L ${cx} ${cy} L ${cx - w} ${cy - h / 2} Z" fill="${colors[1]}"/>` +
-      `<path d="M ${cx} ${cy} L ${cx + w} ${cy - h / 2} L ${cx + w} ${cy + h / 2} L ${cx} ${cy + h} Z" fill="${colors[0]}"/>` +
-      `<path d="M ${cx} ${cy} L ${cx - w} ${cy - h / 2} L ${cx - w} ${cy + h / 2} L ${cx} ${cy + h} Z" fill="${colors[2]}"/>`;
+    const P = {
+      top: [{ x: cx - w, y: cy - h / 2 }, { x: cx, y: cy - h }, { x: cx + w, y: cy - h / 2 }, { x: cx, y: cy }],
+      right: [{ x: cx, y: cy }, { x: cx + w, y: cy - h / 2 }, { x: cx, y: cy + h }, { x: cx + w, y: cy + h / 2 }],
+      left: [{ x: cx - w, y: cy - h / 2 }, { x: cx, y: cy }, { x: cx - w, y: cy + h / 2 }, { x: cx, y: cy + h }]
+    };
+    if (blk && blk.includes('barrel')) {
+      return face('barrel_top.png', 0, 0, 16, 16, ...P.top) +
+        face('barrel_side.png', 0, 0, 16, 16, ...P.right) +
+        face('barrel_side.png', 0, 0, 16, 16, ...P.left);
+    }
+    if (blk && blk.includes('shulker')) {
+      return face('shulker_box.png', 14, 0, 16, 16, ...P.top) +
+        face('shulker_box.png', 14, 28, 14, 16, ...P.right) +
+        face('shulker_box.png', 28, 14, 14, 16, ...P.left);
+    }
+    if (blk && (blk.includes('hopper') || blk.includes('dispenser') || blk.includes('dropper'))) {
+      // 漏斗/发射器/投掷器：顶面用贴图，侧面配色兜底
+      const colors = blk.includes('hopper') ? ['#8a8a8a', '#a9a9a9', '#6b6b6b']
+        : blk.includes('dispenser') ? ['#9b9b9b', '#bcbcbc', '#7a7a7a'] : ['#767676', '#929292', '#5a5a5a'];
+      const tex = blk.includes('hopper') ? 'hopper_top.png'
+        : blk.includes('dispenser') ? 'dispenser_front.png' : 'dropper_front.png';
+      return face(tex, 0, 0, 16, 16, ...P.top) +
+        `<path d="M ${P.right[0].x} ${P.right[0].y} L ${P.right[1].x} ${P.right[1].y} L ${P.right[3].x} ${P.right[3].y} L ${P.right[2].x} ${P.right[2].y} Z" fill="${colors[0]}"/>` +
+        `<path d="M ${P.left[0].x} ${P.left[0].y} L ${P.left[1].x} ${P.left[1].y} L ${P.left[3].x} ${P.left[3].y} L ${P.left[2].x} ${P.left[2].y} Z" fill="${colors[2]}"/>`;
+    }
+    // 箱子 / 陷阱箱 / 默认：chest 实体贴图（top/left/front）
+    const tex = blk && blk.includes('trapped_chest') ? 'chest.png' : 'chest.png';
+    return face(tex, 14, 0, 16, 16, ...P.top) +
+      face(tex, 14, 28, 14, 16, ...P.right) +
+      face(tex, 28, 14, 14, 16, ...P.left);
   };
   const auditByKey = {};
   if (audit) for (const bx of audit.boxes || []) auditByKey[bx.key] = bx;
@@ -632,7 +654,7 @@ function drawMap(cfg, audit, botId) {
       fill="rgba(255,143,192,0.06)" stroke="rgba(255,143,192,0.5)" stroke-dasharray="6 4" rx="8"/>`;
     svg += `<text x="${X(a.min.x) + 8}" y="${Z(a.min.z) + 18}" fill="#ff8fc0" font-size="12">${esc(a.name)}</text>`;
   }
-  // 容器（立体方块，尺寸不超过格距 85%，同格竖叠横向并排）
+  // 容器（真实贴图等距方块，尺寸不超过格距 85%，同格竖叠横向并排）
   const isoW = Math.min(16, sx * 0.38, sz * 0.38);
   for (const [k, pts] of groups) {
     const [gx, gz] = k.split(',').map(Number);
@@ -647,18 +669,56 @@ function drawMap(cfg, audit, botId) {
         : (tip && tip.error ? `识别失败: ${tip.error}` : '未盘点');
       const label = `${typeName(blk)} ${p.label} (${p.x}, ${p.y}, ${p.z})`;
       svg += `<g transform="translate(${off},0)">
-        <rect x="${cx - isoW - 2}" y="${cy - isoW - 2}" width="${isoW * 2 + 4}" height="${isoW * 2 + 4}" rx="5"
-          fill="${ring[p.type]}" fill-opacity="0.12" stroke="${ring[p.type]}" stroke-width="1.2"/>
-        ${isoBox(cx, cy, isoW, paletteOf(blk))}
+        <rect x="${cx - isoW - 3}" y="${cy - isoW - 3}" width="${isoW * 2 + 6}" height="${isoW * 2 + 6}" rx="6"
+          fill="${ring[p.type]}" fill-opacity="0.1" stroke="${ring[p.type]}" stroke-width="1.2"/>
+        ${texBox(cx, cy, isoW, blk)}
         <title>${esc(label)}\n${esc(content)}</title>
       </g>`;
     });
     const labelY = cy + isoW * 1.6 + (sorted.length > 1 ? isoW * (sorted.length - 1) : 0) + 8;
     svg += `<text x="${cx}" y="${labelY}" text-anchor="middle" fill="#b89dad" font-size="10" font-family="monospace">${gx},${gz}${Number.isFinite(layer) ? ` y=${layer}` : ''}</text>`;
   }
-  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">容器为 MC 等距方块贴图（悬停查看内容）· Y层下拉可单看某层，竖叠自动横向并排 · 盘点数据来自开箱识别</text>`;
+  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">真实 MC 方块贴图等距渲染 · 滚轮缩放 / 拖拽平移 / 双击还原 · Y层可单看某层</text>`;
   svg += '</svg>';
   $('map-canvas-wrap').innerHTML = svg;
+  const svgEl = $('map-canvas-wrap').querySelector('svg');
+  if (svgEl) attachMapPanZoom(svgEl, W, H);
+}
+
+// 地图平移缩放：滚轮缩放（锚点鼠标）、拖拽平移、双击还原
+function attachMapPanZoom(svgEl, W, H) {
+  const vb = { minX: 0, minY: 0, w: W, h: H };
+  const apply = () => svgEl.setAttribute('viewBox', `${vb.minX} ${vb.minY} ${vb.w} ${vb.h}`);
+  let drag = null;
+  svgEl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const r = svgEl.getBoundingClientRect();
+    const mx = vb.minX + (e.clientX - r.left) / r.width * vb.w;
+    const my = vb.minY + (e.clientY - r.top) / r.height * vb.h;
+    const f = e.deltaY < 0 ? 0.75 : 1.35;
+    const nw = Math.max(Math.min(vb.w * f, W * 10), 60);
+    const nh = nw * r.height / r.width;
+    vb.minX = mx - (mx - vb.minX) * (nw / vb.w);
+    vb.minY = my - (my - vb.minY) * (nh / vb.h);
+    vb.w = nw; vb.h = nh;
+    apply();
+  }, { passive: false });
+  svgEl.addEventListener('mousedown', (e) => {
+    drag = { x: e.clientX, y: e.clientY };
+    svgEl.style.cursor = 'grabbing';
+    e.preventDefault();
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!drag || !svgEl.isConnected) return;
+    const r = svgEl.getBoundingClientRect();
+    vb.minX -= (e.clientX - drag.x) / r.width * vb.w;
+    vb.minY -= (e.clientY - drag.y) / r.height * vb.h;
+    drag = { x: e.clientX, y: e.clientY };
+    apply();
+  });
+  window.addEventListener('mouseup', () => { drag = null; svgEl.style.cursor = 'grab'; });
+  svgEl.addEventListener('dblclick', () => { vb.minX = 0; vb.minY = 0; vb.w = W; vb.h = H; apply(); });
+  svgEl.style.cursor = 'grab';
 }
 
 /* ================= 任务列表 ================= */
