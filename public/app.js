@@ -295,9 +295,9 @@ function loadVis(cfg) {
     standby: cfg.standbyPoint ? { x: cfg.standbyPoint.x, y: cfg.standbyPoint.y, z: cfg.standbyPoint.z } : { x: '', y: '', z: '' },
     sources: split(cfg.sourceBoxes),
     targets: (cfg.targetBoxes || []).map(t => t.type === 'area'
-      ? { type: 'area', min: t.min, max: t.max, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') }
+      ? { type: 'area', min: t.min, max: t.max, category: t.category || '', items: t.items.map(i => 'minecraft:' + i.name).join(',') }
       : (Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z)
-        ? { x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') }
+        ? { x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => 'minecraft:' + i.name).join(',') }
         : null)).filter(Boolean),
     overflows: split(cfg.overflowBoxes || (cfg.overflowBox ? [cfg.overflowBox] : []))
   };
@@ -501,12 +501,12 @@ function collectVis() {
       ? {
           type: 'area', min: t.min, max: t.max,
           category: String(t.category || '').trim(),
-          items: String(t.items || '').split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean)
+          items: String(t.items || '').split(/[,，;；]+/).map(s => s.trim()).filter(Boolean)
         }
       : ({
           x: num(t.x), y: num(t.y), z: num(t.z),
           category: String(t.category || '').trim(),
-          items: String(t.items || '').split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean)
+          items: String(t.items || '').split(/[,，;；]+/).map(s => s.trim()).filter(Boolean)
         }))
       .filter(t => t.type === 'area'
         ? !!(t.min && t.max) // 区域条目保留（items 允许为空，后台填写）

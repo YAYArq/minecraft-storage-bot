@@ -134,3 +134,11 @@ test('point 目标箱 items 允许为空（后台填写），不报错', () => {
   assert.ok(Array.isArray(empty.items) && empty.items.length === 0, 'items 允许为空');
   assert.ok(store.loadWarnings.some(w => w.includes('尚未填写物品清单')));
 });
+
+test('物品引用解析：带空格的显示名（Honeycomb Block）整体解析，不被空格拆分', () => {
+  const store = new ConfigStore(tmpConfig(VALID), classifier);
+  const refs = store.resolveRefList('Honeycomb Block, pumpkin');
+  assert.strictEqual(refs.length, 2);
+  assert.ok(refs.some(i => i.name === 'honeycomb_block'));
+  assert.ok(refs.some(i => i.name === 'pumpkin'));
+});

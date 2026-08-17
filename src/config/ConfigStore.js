@@ -44,9 +44,10 @@ class ConfigStore {
   resolveRefList(ref) {
     const single = this.classifier.resolveRef(ref);
     if (single) return [single];
-    if (typeof ref === 'string' && /[,，;；\s]+/.test(ref)) {
+    // 分隔符只用逗号/分号——物品名可能含空格（如 "Honeycomb Block"），不能按空格拆分
+    if (typeof ref === 'string' && /[,，;；]+/.test(ref)) {
       const out = [];
-      for (const part of ref.split(/[,，;；\s]+/).filter(Boolean)) {
+      for (const part of ref.split(/[,，;；]+/).filter(Boolean)) {
         const item = this.classifier.resolveRef(part);
         if (item) out.push(item);
       }
