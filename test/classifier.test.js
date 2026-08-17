@@ -65,3 +65,15 @@ test('中文名词典覆盖木材/活板门/菌核/装备（盘点与日志展�
   assert.strictEqual(birch.name, 'birch_planks');
   assert.strictEqual(birch.zhName, '白桦木板');
 });
+
+test('中文名词典覆盖树叶/树苗/矿物块等常见物品', () => {
+  assert.strictEqual(classifier.nameToZh('oak_leaves'), '橡树树叶');
+  assert.strictEqual(classifier.nameToZh('birch_leaves'), '白桦树叶');
+  assert.strictEqual(classifier.nameToZh('dark_oak_leaves'), '深色橡树树叶');
+  assert.strictEqual(classifier.nameToZh('oak_sapling'), '橡树树苗');
+  assert.strictEqual(classifier.nameToZh('diamond_block'), '钻石块');
+  assert.strictEqual(classifier.nameToZh('raw_iron_block'), '粗铁块');
+  assert.strictEqual(classifier.nameToZh('honeycomb_block'), '蜜脾块');
+  assert.strictEqual(classifier.nameToZh('stone_pressure_plate'), '石头压力板');
+  assert.strictEqual(classifier.nameToZh('iron_door'), '铁门');
+});
