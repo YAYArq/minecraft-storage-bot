@@ -144,16 +144,24 @@ class ChestService {
    */
   async openContainerAt(pos) {
     const target = vec3(Math.floor(pos.x), Math.floor(pos.y), Math.floor(pos.z));
-    // 先尝试贴近箱子（1.5 格内）；失败则水平寻路到箱子正下方（GoalXZ，垂直由地面决定）——
-    // 悬空/高处箱子正下方地面格可距中心 6+ 格，GoalNear 半径小找不到、半径大停在边缘，
-    // GoalXZ 让 bot 站到箱子正下方，配合下方"跳起开箱"即可够到（与玩家手动操作一致）
+    // 三级寻路：
+    //   ① 贴近箱子（1.5 格内）
+    //   ② 水平对齐箱子正下方（GoalXZ，垂直由地面决定）——悬空/高处箱子的正下方地面格可距中心 6+ 格
+    //   ③ 3.5 格内任意可达格——低处箱子（如 y=76）不必正下方，站旁边跳起即可够到；
+    //      某些起点（如红石装置高台）到正下方 No path，但到旁边可达格有路
     try {
       await this.goto(pos, 1.5);
     } catch (err) {
       try {
         await this.gotoXZ(target.x, target.z);
+        this.logger.debug(`[开箱] (${pos.x},${pos.y},${pos.z}) 水平寻路完成，bot 在 (${this.bot.entity.position.x.toFixed(1)}, ${this.bot.entity.position.y.toFixed(1)}, ${this.bot.entity.position.z.toFixed(1)})`);
       } catch (err2) {
-        this.logger.warn(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 水平寻路不可达: ${err2 && err2.message ? err2.message : err2}`);
+        this.logger.warn(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 水平寻路不可达: ${err2 && err2.message ? err2.message : err2}，尝试 3.5 格内任意可达格`);
+        try {
+          await this.goto(pos, 3.5);
+        } catch (err3) {
+          this.logger.warn(`[开箱] 目标 (${pos.x},${pos.y},${pos.z}) 3.5 格内亦不可达: ${err3 && err3.message ? err3.message : err3}`);
+        }
       }
     }
     // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
