@@ -142,3 +142,12 @@ test('物品引用解析：带空格的显示名（Honeycomb Block）整体解�
   assert.ok(refs.some(i => i.name === 'honeycomb_block'));
   assert.ok(refs.some(i => i.name === 'pumpkin'));
 });
+
+test('tidyInterval 自动巡查间隔解析（默认 600 秒，可配置）', () => {
+  const store = new ConfigStore(tmpConfig({ ...VALID, tidyInterval: 300 }), classifier);
+  store.load();
+  assert.strictEqual(store.tidyInterval, 300);
+  const store2 = new ConfigStore(tmpConfig(VALID), classifier);
+  store2.load();
+  assert.strictEqual(store2.tidyInterval, 600); // 默认
+});

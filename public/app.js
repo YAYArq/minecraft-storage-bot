@@ -1025,6 +1025,7 @@ function bindEvents() {
   });
   $('btn-store').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'store', !b.autoStore); };
   $('btn-reclassify').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'reclassify'); };
+  $('btn-tidy').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'tidy'); };
   $('btn-pause').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'pause'); };
   $('btn-resume').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'resume'); };
   $('btn-stop-task').onclick = () => { const b = curBot(); if (b) sendCommand(b.id, 'stop'); };

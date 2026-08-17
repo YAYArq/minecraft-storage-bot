@@ -361,14 +361,18 @@ class StorageBot {
   /**
    * 统一维护定时器（每 60 秒 tick）：
    *   1) 按 sourceCheckInterval 节流翻看源投料箱（有物品则启动重分类）；
-   *   2) 空闲时回到返回点。
-   * 串行执行，避免两个定时器互相打断寻路（此前 bug：goal was changed）。
+   *   2) 按 tidyInterval 节流自动巡查整理（目标箱/溢出箱错放物品归位）；
+   *   3) 空闲时回到返回点。
+   * 串行执行，避免定时器互相打断寻路（此前 bug：goal was changed）。
    */
   startMaintenanceTimers() {
     clearInterval(this._maintenanceTimer);
     const sec = this.store ? this.store.sourceCheckInterval : 0;
     if (sec > 0) this.logger.info(`定时翻看源投料箱已启用：每 ${sec} 秒`);
+    const tidySec = this.store ? this.store.tidyInterval : 600;
+    if (tidySec > 0) this.logger.info(`自动巡查整理已启用：每 ${tidySec} 秒整理一次仓库`);
     this._lastSourceCheck = 0;
+    this._lastTidyAt = 0;
     this._maintenanceTimer = setInterval(() => {
       this.maintenanceTick().catch(() => {});
     }, 60000);
@@ -391,7 +395,16 @@ class StorageBot {
           this._lastSourceCheck = now;
         }
       }
-      // 2) 兜底：自动入库开启但背包有残留物品（事件漏触发/上次失败）→ 立即处理；
+      // 2) 自动巡查整理（按 tidyInterval 节流）：目标箱/溢出箱错放物品归位
+      const tidySec = this.store.tidyInterval;
+      if (tidySec > 0) {
+        const now = Date.now();
+        if (!this._lastTidyAt || now - this._lastTidyAt >= tidySec * 1000) {
+          this._lastTidyAt = now;
+          this.enqueue(() => this.tidyAll());
+        }
+      }
+      // 3) 兜底：自动入库开启但背包有残留物品（事件漏触发/上次失败）→ 立即处理；
       //    无残留则直接回返回点。放入串行队列，避免与自动入库并发抢寻路。
       await new Promise((resolve) => this.enqueue(async () => {
         try {
@@ -666,18 +679,20 @@ class StorageBot {
   }
 
   /**
-   * 整理目标箱：打开每个目标箱，取出与本箱绑定物品不符的错放物品，
-   * 按各自分类放回对应目标箱（无匹配/箱满则进溢出箱）。放入串行队列执行。
-   * 未绑定物品清单（items 为空）的箱子跳过，避免误清。
+   * 整理仓库（全量巡查）：打开所有目标箱与溢出箱，
+   *   ① 目标箱：取出与本箱绑定物品不符的错放物品，按分类放回对应目标箱（无匹配/箱满进溢出箱）；
+   *   ② 溢出箱：取出能匹配目标分类的物品，归位到对应目标箱（腾出溢出箱空间）。
+   * 放入串行队列执行；未绑定物品清单的箱子跳过，避免误清。
    */
-  tidyTargetBoxes() {
+  tidyAll() {
     if (this.connectionState !== 'online') return { ok: false, message: 'bot 未在线' };
     if (this.task && this.task.state === 'running') return { ok: false, message: '重分类任务运行中，请稍后再试' };
     this.enqueue(async () => {
       const logger = this.logger;
       const tbs = await this.resolveTargetBoxes();
-      const stray = []; // 错放物品 { item, from }
+      const stray = []; // 目标箱错放物品 { item, std, from }
       let moved = 0;
+      // —— ① 目标箱：取出错放物品 ——
       for (const tb of tbs) {
         if (!tb.items || !tb.items.length) {
           logger.warn(`[整理] 目标箱 (${tb.key}) 未绑定物品清单，跳过`);
@@ -702,23 +717,40 @@ class StorageBot {
           if (window) this.chest.close(window);
         }
       }
-      if (!stray.length) {
-        logger.info('[整理] 目标箱检查完毕，没有发现错放物品');
-        return;
-      }
-      // 归位：按分类放回对应目标箱；无匹配/箱满 -> 溢出箱
-      let toOverflow = 0;
+      // 归位目标箱错放物品：按分类放回对应目标箱；无匹配/箱满 -> 溢出箱
       for (const { item, std, from } of stray) {
         const tgt = await this.matchTargetBoxes(std);
         if (tgt.length) {
           logger.info(`[整理] 归位 ${std.zhName} x${item.count} -> 分类 [${tgt[0].category}]（原在 ${from.key}）`);
           await this.depositToTargetBox(tgt[0].category, [{ item, std }]);
         } else {
-          toOverflow += item.count;
           await this.depositToOverflow([{ item, std }]);
         }
       }
-      logger.info(`[整理] 完成：共取出错放物品 ${moved} 件，归位到对应分类箱 / 溢出箱`);
+      // —— ② 溢出箱：取出可匹配目标分类的物品，归位 ——
+      const ovfs = await this.resolveOverflowBoxes();
+      for (const ob of ovfs) {
+        let window = null;
+        try {
+          window = await this.chest.openContainerAt(ob);
+          const items = window.containerItems();
+          for (const it of items) {
+            const std = this.classifier.itemOf(it);
+            if (!std) continue;
+            const tgt = await this.matchTargetBoxes(std);
+            if (!tgt.length) continue;
+            await window.withdraw(it.type, it.metadata || 0, it.count);
+            moved += it.count;
+            logger.info(`[整理] 溢出箱 (${ob.key}) 取出 ${std.zhName} x${it.count} 归位 -> 分类 [${tgt[0].category}]`);
+            await this.depositToTargetBox(tgt[0].category, [{ item: it, std }]);
+          }
+        } catch (err) {
+          logger.error(`[整理] 溢出箱 (${ob.key}) 打开失败: ${err.message}`);
+        } finally {
+          if (window) this.chest.close(window);
+        }
+      }
+      logger.info(`[整理] 巡查完成：共归位 ${moved} 件物品`);
     });
     return { ok: true, message: '整理任务已开始（结果见日志）' };
   }
@@ -885,9 +917,10 @@ class StorageBot {
         return { ok: true, message: 'diagmove 已输出到日志' };
       }
       case 'tidy':
-      case 'tidytarget': {
-        // 整理目标箱：取出错放物品并归位到对应分类箱/溢出箱
-        return this.tidyTargetBoxes();
+      case 'tidytarget':
+      case 'tidyall': {
+        // 整理仓库：开所有目标箱/溢出箱，分类不对的取出归位
+        return this.tidyAll();
       }
       case 'gototest': {
         // 调试：让 bot 寻路到指定坐标（排查半砖/楼梯寻路）

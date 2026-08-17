@@ -267,6 +267,10 @@ class ConfigStore {
     const sourceCheckInterval = Number.isFinite(Number(json.sourceCheckInterval)) && Number(json.sourceCheckInterval) >= 0
       ? Number(json.sourceCheckInterval)
       : 120;
+    // 自动巡查整理间隔（秒，0 = 关闭；默认 600 秒）：定时整理目标箱/溢出箱错放物品
+    const tidyInterval = Number.isFinite(Number(json.tidyInterval)) && Number(json.tidyInterval) >= 0
+      ? Number(json.tidyInterval)
+      : 600;
 
     // ---- 用户附加中文词典 ----
     if (json.zhNameMap && typeof json.zhNameMap === 'object') {
@@ -282,7 +286,7 @@ class ConfigStore {
     }
 
     this.loadWarnings = warnings;
-    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval };
+    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval, tidyInterval };
   }
 
   // ---------- 保存前规范化 ----------
@@ -347,6 +351,7 @@ class ConfigStore {
   get batchSize() { return this.parsed ? this.parsed.batchSize : 64; }
   get freeSlotThreshold() { return this.parsed ? this.parsed.freeSlotThreshold : 6; }
   get sourceCheckInterval() { return this.parsed ? this.parsed.sourceCheckInterval : 120; }
+  get tidyInterval() { return this.parsed ? this.parsed.tidyInterval : 600; }
 
   /** 面板展示用：返回解析后的配置快照（含中文名） */
   toJSON() {
@@ -361,6 +366,7 @@ class ConfigStore {
       overflowBox: this.overflowBox, // 兼容旧前端
       standbyPoint: this.standbyPoint,
       sourceCheckInterval: this.sourceCheckInterval,
+      tidyInterval: this.tidyInterval,
       warnings: this.loadWarnings
     };
   }
