@@ -572,8 +572,39 @@ function drawMap(cfg, audit, botId) {
   const X = (x) => pad + (x - minX) * sx;
   const Z = (z) => pad + (z - minZ) * sz;
 
-  const color = { source: '#ffd9a0', target: '#ff8fc0', overflow: '#ff8fae' };
-  const icon = { source: 'S', target: 'T', overflow: 'O' };
+  // 容器方块类型 -> 贴图（盘点结果 blockType；未盘点默认 chest）
+  const textureOf = (name) => {
+    if (!name) return 'chest.png';
+    if (name.includes('barrel')) return 'barrel_top.png';
+    if (name.includes('shulker')) return 'shulker_box.png';
+    if (name.includes('hopper')) return 'hopper_top.png';
+    if (name.includes('dispenser')) return 'dispenser_front.png';
+    if (name.includes('dropper')) return 'dropper_front.png';
+    if (name.includes('trapped_chest')) return 'trapped_chest.png';
+    return 'chest.png';
+  };
+  const typeName = (name) => {
+    if (!name) return '箱子';
+    if (name.includes('barrel')) return '木桶';
+    if (name.includes('shulker')) return '潜影盒';
+    if (name.includes('hopper')) return '漏斗';
+    if (name.includes('dispenser')) return '发射器';
+    if (name.includes('dropper')) return '投掷器';
+    if (name.includes('trapped_chest')) return '陷阱箱';
+    return '箱子';
+  };
+  const auditByKey = {};
+  if (audit) for (const bx of audit.boxes || []) auditByKey[bx.key] = bx;
+
+  // 同 XZ 不同 Y 的箱子分组（竖叠时错开显示，避免完全重叠）
+  const groups = new Map(); // "x,z" -> [points]
+  for (const p of points) {
+    const k = `${p.x},${p.z}`;
+    if (!groups.has(k)) groups.set(k, []);
+    groups.get(k).push(p);
+  }
+  const CELL = 40; // 每格尺寸
+  const STACK_GAP = 15; // 同格内每层错开量
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#120c14;border-radius:14px;border:1px solid #3b273f">`;
   // 网格
@@ -586,24 +617,36 @@ function drawMap(cfg, audit, botId) {
       fill="rgba(255,143,192,0.06)" stroke="rgba(255,143,192,0.5)" stroke-dasharray="6 4" rx="8"/>`;
     svg += `<text x="${X(a.min.x) + 8}" y="${Z(a.min.z) + 18}" fill="#ff8fc0" font-size="12">${esc(a.name)}</text>`;
   }
-  // 箱子
-  for (const p of points) {
-    const cx = X(p.x), cy = Z(p.z);
-    const boxSize = 34;
-    const tip = (audit ? audit.boxes.find(bx => bx.key === `${p.x},${p.y},${p.z}`) : null);
-    const content = tip && tip.items && tip.items.length
-      ? tip.items.slice(0, 3).map(i => `${i.zhName || i.name} x${i.count}`).join('\n') + (tip.items.length > 3 ? `\n…共 ${tip.items.length} 种` : '')
-      : (tip && tip.error ? `识别失败: ${tip.error}` : '未盘点');
-    svg += `
+  // 容器（贴图 + 同格错开）
+  const ring = { source: '#ffd9a0', target: '#ff8fc0', overflow: '#7fd4ff' };
+  for (const [k, pts] of groups) {
+    const [gx, gz] = k.split(',').map(Number);
+    const cx = X(gx), cy = Z(gz);
+    // 同格多个箱子按 y 升序错开
+    const sorted = [...pts].sort((a, b) => (a.y || 0) - (b.y || 0));
+    sorted.forEach((p, i) => {
+      const tip = auditByKey[p.key];
+      const blk = tip && tip.blockType ? tip.blockType : null;
+      const img = textureOf(blk);
+      const off = i * STACK_GAP;
+      const size = CELL - 6;
+      const content = tip && tip.items && tip.items.length
+        ? tip.items.slice(0, 3).map(it => `${it.zhName || it.name} x${it.count}`).join('\n') + (tip.items.length > 3 ? `\n…共 ${tip.items.length} 种` : '')
+        : (tip && tip.error ? `识别失败: ${tip.error}` : '未盘点');
+      const label = `${typeName(blk)} ${p.label} (${p.x}, ${p.y}, ${p.z})`;
+      svg += `
       <g>
-        <rect x="${cx - boxSize / 2}" y="${cy - boxSize / 2}" width="${boxSize}" height="${boxSize}" rx="8"
-          fill="${color[p.type]}" fill-opacity="0.16" stroke="${color[p.type]}" stroke-width="2"/>
-        <text x="${cx}" y="${cy + 4}" text-anchor="middle" fill="${color[p.type]}" font-weight="700" font-size="13">${icon[p.type]}</text>
-        <title>${esc(p.label)} (${p.x}, ${p.y}, ${p.z})\n${esc(content)}</title>
-      </g>
-      <text x="${cx}" y="${cy + boxSize / 2 + 14}" text-anchor="middle" fill="#b89dad" font-size="10" font-family="monospace">${p.x},${p.z}</text>`;
+        <rect x="${cx - size / 2}" y="${cy - size / 2 + off}" width="${size}" height="${size}" rx="7"
+          fill="${ring[p.type]}" fill-opacity="0.14" stroke="${ring[p.type]}" stroke-width="1.5"/>
+        <image href="/textures/${img}" x="${cx - size / 2 + 4}" y="${cy - size / 2 + 4 + off}" width="${size - 8}" height="${size - 8}"
+          preserveAspectRatio="xMidYMid meet"/>
+        <title>${esc(label)}\n${esc(content)}</title>
+      </g>`;
+    });
+    // 坐标标注（格下方）
+    svg += `<text x="${cx}" y="${cy + CELL / 2 + 14 + (sorted.length - 1) * STACK_GAP}" text-anchor="middle" fill="#b89dad" font-size="10" font-family="monospace">${gx},${gz}${sorted.length > 1 ? ` ×${sorted.length}` : ''}</text>`;
   }
-  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">S=源箱 T=目标箱 O=溢出箱 · 悬停查看内容（开箱识别）</text>`;
+  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">容器按 MC 方块贴图绘制（悬停查看内容）· 同格竖叠自动错开 · 盘点数据来自开箱识别</text>`;
   svg += '</svg>';
   $('map-canvas-wrap').innerHTML = svg;
 }

@@ -900,13 +900,15 @@ class StorageBot {
         let window = null;
         try {
           window = await this.chest.openContainerAt(b);
+          const blk = this.bot.blockAt(vec3(b.x, b.y, b.z));
+          const blockType = blk ? blk.name : null; // 容器方块类型（chest/barrel/shulker_box...），地图选贴图用
           const items = window.containerItems().map(it => {
             const std = this.classifier.itemOf({ type: it.type, name: it.name });
             return { name: it.name, zhName: std ? std.zhName : it.name, count: it.count };
           });
           // 每箱汇总：总件数 + 种类数
           const box = {
-            key: b.key, x: b.x, y: b.y, z: b.z, category: b.category,
+            key: b.key, x: b.x, y: b.y, z: b.z, category: b.category, blockType,
             items,
             totalCount: items.reduce((s, i) => s + i.count, 0),
             totalKinds: items.length
