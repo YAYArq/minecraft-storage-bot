@@ -344,7 +344,9 @@ function areaType() {
 }
 
 function readAreaCorners() {
-  const nums = [ar1x, ar1y, ar1z, ar2x, ar2y, ar2z].map(id => Number($(id).value));
+  // 注意：必须用字符串 id——裸标识符 ar1x 会被浏览器解析成 window.ar1x（DOM 元素本身），
+  // 导致 $(ar1x) 为 null 崩溃（此前静默失败：点击扫描/添加无反应）
+  const nums = ['ar1x', 'ar1y', 'ar1z', 'ar2x', 'ar2y', 'ar2z'].map(id => Number($(id).value));
   if (!nums.every(n => Number.isFinite(n))) return null;
   return {
     corner1: { x: nums[0], y: nums[1], z: nums[2] },
