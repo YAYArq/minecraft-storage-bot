@@ -294,8 +294,11 @@ function loadVis(cfg) {
     freeSlotThreshold: cfg.freeSlotThreshold ?? 6,
     standby: cfg.standbyPoint ? { x: cfg.standbyPoint.x, y: cfg.standbyPoint.y, z: cfg.standbyPoint.z } : { x: '', y: '', z: '' },
     sources: split(cfg.sourceBoxes),
-    targets: (cfg.targetBoxes || []).filter(t => Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z))
-      .map(t => ({ x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') })),
+    targets: (cfg.targetBoxes || []).map(t => t.type === 'area'
+      ? { type: 'area', min: t.min, max: t.max, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') }
+      : (Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z)
+        ? { x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') }
+        : null)).filter(Boolean),
     overflows: split(cfg.overflowBoxes || (cfg.overflowBox ? [cfg.overflowBox] : []))
   };
   $('vis-batch').value = state.vis.batchSize;
@@ -422,7 +425,9 @@ function renderVis() {
   $('vis-srcs').innerHTML = state.vis.sources.pts.map((v, i) => row(i, 'sources', box3(i, 'sources', v), '源箱')).join('')
     || '<div class="panel-hint">暂无源箱</div>';
   $('vis-tgts').innerHTML = state.vis.targets.map((t, i) => row(i, 'targets', `
-      ${box3(i, 'targets', t)}
+      ${t.type === 'area'
+        ? `<span class="chip" style="margin-right:6px">区域 ${t.min.x},${t.min.y},${t.min.z} ~ ${t.max.x},${t.max.y},${t.max.z}</span>`
+        : box3(i, 'targets', t)}
       <input class="input mono-input vis-input vis-cat" data-i="${i}" placeholder="分类名（如 钻石）" value="${esc(t.category)}">
       <input class="input mono-input vis-input vis-items" data-i="${i}" placeholder="物品（逗号分隔，如 钻石,diamond,264）" value="${esc(t.items)}">`, '目标箱')).join('')
     || '<div class="panel-hint">暂无目标箱</div>';
@@ -436,7 +441,8 @@ function renderVis() {
   document.querySelectorAll('.vis-del').forEach(btn => {
     btn.onclick = () => {
       const cls = btn.dataset.cls;
-      state.vis[cls].pts.splice(Number(btn.dataset.i), 1);
+      if (cls === 'targets') state.vis.targets.splice(Number(btn.dataset.i), 1);
+      else state.vis[cls].pts.splice(Number(btn.dataset.i), 1);
       renderVis();
     };
   });
@@ -491,11 +497,20 @@ function collectVis() {
       ...state.vis.sources.pts.map(v => ({ x: num(v.x), y: num(v.y), z: num(v.z) })).filter(v => v.x || v.y || v.z),
       ...state.vis.sources.areas.map(a => ({ min: a.min, max: a.max }))
     ],
-    targetBoxes: state.vis.targets.map(t => ({
-      x: num(t.x), y: num(t.y), z: num(t.z),
-      category: String(t.category || '').trim(),
-      items: String(t.items || '').split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean)
-    })).filter(t => (t.x || t.y || t.z) && t.items.length),
+    targetBoxes: state.vis.targets.map(t => t.type === 'area'
+      ? {
+          type: 'area', min: t.min, max: t.max,
+          category: String(t.category || '').trim(),
+          items: String(t.items || '').split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean)
+        }
+      : ({
+          x: num(t.x), y: num(t.y), z: num(t.z),
+          category: String(t.category || '').trim(),
+          items: String(t.items || '').split(/[,，;；\s]+/).map(s => s.trim()).filter(Boolean)
+        }))
+      .filter(t => t.type === 'area'
+        ? !!(t.min && t.max) // 区域条目保留（items 允许为空，后台填写）
+        : (t.x || t.y || t.z) && t.items.length),
     overflowBoxes: [
       ...state.vis.overflows.pts.map(v => ({ x: num(v.x), y: num(v.y), z: num(v.z) })).filter(v => v.x || v.y || v.z),
       ...state.vis.overflows.areas.map(a => ({ min: a.min, max: a.max }))
