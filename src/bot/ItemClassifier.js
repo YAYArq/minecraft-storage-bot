@@ -294,6 +294,9 @@ const BUILTIN_ZH = {
   '仙人掌': 'cactus'
 };
 
+/** 官方简体中文翻译（name -> 中文，1473 条，来自 MC 1.20.3 zh_cn.lang，jsdelivr 拉取） */
+const OFFICIAL_ZH = require('../data/zh_cn_items.json');
+
 class ItemClassifier {
   /**
    * @param {string} mcVersion 服务器协议版本，如 '1.21.1'（minecraft-data 支持）、'26.1'（mineflayer-x 注册）
@@ -368,11 +371,12 @@ class ItemClassifier {
     };
   }
 
-  /** item name -> 中文名（词典命中）；否则回退 displayName；再回退 name */
+  /** item name -> 中文名：内置/用户词典（可覆盖官方）优先，其次官方 zh_cn 翻译，最后回退 displayName */
   nameToZh(name) {
     for (const [zh, ref] of Object.entries(this.zhDict)) {
       if (ref === name || ref === `minecraft:${name}`) return zh;
     }
+    if (OFFICIAL_ZH && OFFICIAL_ZH[name]) return OFFICIAL_ZH[name];
     const item = this.byName.get(name);
     return item && item.displayName ? item.displayName : name;
   }

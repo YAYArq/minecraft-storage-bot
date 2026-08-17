@@ -77,3 +77,13 @@ test('中文名词典覆盖树叶/树苗/矿物块等常见物品', () => {
   assert.strictEqual(classifier.nameToZh('stone_pressure_plate'), '石头压力板');
   assert.strictEqual(classifier.nameToZh('iron_door'), '铁门');
 });
+
+test('官方 zh_cn 翻译覆盖（竹马赛克/疣块等 1473 条）', () => {
+  assert.strictEqual(classifier.nameToZh('bamboo_mosaic'), '竹马赛克');
+  assert.strictEqual(classifier.nameToZh('warped_wart_block'), '诡异疣块');
+  assert.strictEqual(classifier.nameToZh('nether_wart_block'), '下界疣块');
+  assert.strictEqual(classifier.nameToZh('deepslate_redstone_ore'), '深层红石矿石');
+  assert.strictEqual(classifier.nameToZh('crimson_stem'), '绯红菌柄');
+  // 内置词典优先级仍高于官方（一致性）
+  assert.strictEqual(classifier.nameToZh('oak_leaves'), '橡树树叶');
+});
