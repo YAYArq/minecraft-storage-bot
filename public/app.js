@@ -360,39 +360,47 @@ function bindAreaOps() {
     });
   });
   $('area-scan').onclick = async () => {
-    const c = readAreaCorners();
-    if (!c) { showAreaResult(false, '请先填写两个对角坐标（x/y/z）'); return; }
-    const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/boxes/scan`, {
-      method: 'POST',
-      body: JSON.stringify(c)
-    });
-    if (!r.ok) { showAreaResult(false, r.message); return; }
-    showAreaResult(true, `区域内发现 ${r.count} 个箱子`);
-    $('area-preview').innerHTML = r.boxes.length
-      ? `<div class="area-preview-list">${r.boxes.map(b => `<span class="chip">${b.x},${b.y},${b.z}</span>`).join('')}</div>`
-      : '<div class="panel-hint">区域内没有发现箱子（确认 bot 在线且该区域区块已加载）</div>';
+    try {
+      const c = readAreaCorners();
+      if (!c) { showAreaResult(false, '请先填写两个对角坐标（x/y/z）'); return; }
+      const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/boxes/scan`, {
+        method: 'POST',
+        body: JSON.stringify(c)
+      });
+      if (!r.ok) { showAreaResult(false, r.message); return; }
+      showAreaResult(true, `区域内发现 ${r.count} 个箱子`);
+      $('area-preview').innerHTML = r.boxes.length
+        ? `<div class="area-preview-list">${r.boxes.map(b => `<span class="chip">${b.x},${b.y},${b.z}</span>`).join('')}</div>`
+        : '<div class="panel-hint">区域内没有发现箱子（确认 bot 在线且该区域区块已加载）</div>';
+    } catch (e) {
+      showAreaResult(false, '扫描请求失败: ' + (e && e.message ? e.message : e));
+    }
   };
   $('area-add').onclick = async () => {
-    const c = readAreaCorners();
-    if (!c) { showAreaResult(false, '请先填写两个对角坐标（x/y/z）'); return; }
-    const entry = {
-      min: {
-        x: Math.min(c.corner1.x, c.corner2.x), y: Math.min(c.corner1.y, c.corner2.y), z: Math.min(c.corner1.z, c.corner2.z)
-      },
-      max: {
-        x: Math.max(c.corner1.x, c.corner2.x), y: Math.max(c.corner1.y, c.corner2.y), z: Math.max(c.corner1.z, c.corner2.z)
+    try {
+      const c = readAreaCorners();
+      if (!c) { showAreaResult(false, '请先填写两个对角坐标（x/y/z）'); return; }
+      const entry = {
+        min: {
+          x: Math.min(c.corner1.x, c.corner2.x), y: Math.min(c.corner1.y, c.corner2.y), z: Math.min(c.corner1.z, c.corner2.z)
+        },
+        max: {
+          x: Math.max(c.corner1.x, c.corner2.x), y: Math.max(c.corner1.y, c.corner2.y), z: Math.max(c.corner1.z, c.corner2.z)
+        }
+      };
+      const type = areaType();
+      if (type === 'target') entry.category = ($('area-category').value || '').trim() || '未分类';
+      const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/boxes/area`, {
+        method: 'POST',
+        body: JSON.stringify({ type, entry })
+      });
+      showAreaResult(r.ok, r.message);
+      if (r.ok) {
+        $('area-preview').innerHTML = '';
+        loadConfigEditor();
       }
-    };
-    const type = areaType();
-    if (type === 'target') entry.category = ($('area-category').value || '').trim() || '未分类';
-    const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/boxes/area`, {
-      method: 'POST',
-      body: JSON.stringify({ type, entry })
-    });
-    showAreaResult(r.ok, r.message);
-    if (r.ok) {
-      $('area-preview').innerHTML = '';
-      loadConfigEditor();
+    } catch (e) {
+      showAreaResult(false, '添加请求失败: ' + (e && e.message ? e.message : e));
     }
   };
 }

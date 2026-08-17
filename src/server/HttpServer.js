@@ -210,7 +210,11 @@ class HttpServer {
     fs.readFile(full, (err, data) => {
       if (err) return this.text(res, 404, 'not found');
       const ext = path.extname(full).toLowerCase();
-      res.writeHead(200, { 'Content-Type': MIME_TYPES[ext] || 'application/octet-stream' });
+      // no-cache：前端频繁迭代，避免浏览器缓存旧 JS/HTML 导致"点击无反应"
+      res.writeHead(200, {
+        'Content-Type': MIME_TYPES[ext] || 'application/octet-stream',
+        'Cache-Control': 'no-cache'
+      });
       res.end(data);
     });
   }
