@@ -540,6 +540,7 @@ function renderMap() {
   const b = botOf(id);
   if (!b) { $('map-canvas-wrap').innerHTML = '<div class="empty-state">无实例</div>'; return; }
   $('map-hint').textContent = b.configLoaded ? '箱子内容来自最近一次盘点（开箱识别）' : '该实例配置未加载';
+  $('map-layer').onchange = () => renderMap(); // Y 层切换重绘
   api(`/api/bots/${encodeURIComponent(id)}/boxes`).then(r => {
     if (!r.config) { $('map-canvas-wrap').innerHTML = '<div class="empty-state">配置未加载</div>'; return; }
     const audit = state.audit && state.audit.botId === id ? state.audit : null;
@@ -557,7 +558,16 @@ function drawMap(cfg, audit, botId) {
   for (const ob of (cfg.overflowBoxes || (cfg.overflowBox ? [cfg.overflowBox] : []))) add(ob, 'overflow', '溢出箱');
   if (!points.length) { $('map-canvas-wrap').innerHTML = '<div class="empty-state">无可绘制坐标</div>'; return; }
 
-  const xs = points.map(p => p.x), zs = points.map(p => p.z);
+  // Y 层选择器（竖叠的箱子按层分开查看，避免叠在一起）
+  const layerSel = $('map-layer');
+  const ys = [...new Set(points.map(p => p.y).filter(v => Number.isFinite(v)))].sort((a, b) => a - b);
+  const prev = layerSel.value;
+  layerSel.innerHTML = '<option value="all">全部</option>' + ys.map(y => `<option value="${y}">y=${y}</option>`).join('');
+  if (ys.includes(Number(prev))) layerSel.value = prev;
+  const layer = Number(layerSel.value);
+  const filtered = Number.isFinite(layer) ? points.filter(p => p.y === layer) : points;
+
+  const xs = filtered.map(p => p.x), zs = filtered.map(p => p.z);
   let minX = Math.min(...xs) - 3, maxX = Math.max(...xs) + 3;
   let minZ = Math.min(...zs) - 3, maxZ = Math.max(...zs) + 3;
   // 扫描区域扩展
@@ -567,21 +577,21 @@ function drawMap(cfg, audit, botId) {
     minZ = Math.min(minZ, a.min.z - 3); maxZ = Math.max(maxZ, a.max.z + 3);
   }
   const W = 820, H = 560, pad = 40;
-  const sx = (W - pad * 2) / (maxX - minX || 1);
-  const sz = (H - pad * 2) / (maxZ - minZ || 1);
+  const sx = Math.max((W - pad * 2) / (maxX - minX || 1), 34);
+  const sz = Math.max((H - pad * 2) / (maxZ - minZ || 1), 34);
   const X = (x) => pad + (x - minX) * sx;
   const Z = (z) => pad + (z - minZ) * sz;
 
-  // 容器方块类型 -> 贴图（盘点结果 blockType；未盘点默认 chest）
-  const textureOf = (name) => {
-    if (!name) return 'chest.png';
-    if (name.includes('barrel')) return 'barrel_top.png';
-    if (name.includes('shulker')) return 'shulker_box.png';
-    if (name.includes('hopper')) return 'hopper_top.png';
-    if (name.includes('dispenser')) return 'dispenser_front.png';
-    if (name.includes('dropper')) return 'dropper_front.png';
-    if (name.includes('trapped_chest')) return 'trapped_chest.png';
-    return 'chest.png';
+  // 容器方块类型 -> 立体配色（顶/侧/暗侧），效果接近 MC 等距物品图标
+  const paletteOf = (name) => {
+    if (!name) return ['#b07b4e', '#d39a6a', '#8a5a36'];
+    if (name.includes('barrel')) return ['#8a6a42', '#a9875a', '#6b4f2f'];
+    if (name.includes('shulker')) return ['#9c62c9', '#b98ae0', '#7a47a3'];
+    if (name.includes('hopper')) return ['#8a8a8a', '#a9a9a9', '#6b6b6b'];
+    if (name.includes('dispenser')) return ['#9b9b9b', '#bcbcbc', '#7a7a7a'];
+    if (name.includes('dropper')) return ['#767676', '#929292', '#5a5a5a'];
+    if (name.includes('trapped_chest')) return ['#a04a2f', '#c96a45', '#7a3620'];
+    return ['#b07b4e', '#d39a6a', '#8a5a36'];
   };
   const typeName = (name) => {
     if (!name) return '箱子';
@@ -593,21 +603,26 @@ function drawMap(cfg, audit, botId) {
     if (name.includes('trapped_chest')) return '陷阱箱';
     return '箱子';
   };
+  // 等距立方体（顶面 + 左右侧面）
+  const isoBox = (cx, cy, w, colors) => {
+    const h = w * 0.55;
+    return `<path d="M ${cx} ${cy - h} L ${cx + w} ${cy - h / 2} L ${cx} ${cy} L ${cx - w} ${cy - h / 2} Z" fill="${colors[1]}"/>` +
+      `<path d="M ${cx} ${cy} L ${cx + w} ${cy - h / 2} L ${cx + w} ${cy + h / 2} L ${cx} ${cy + h} Z" fill="${colors[0]}"/>` +
+      `<path d="M ${cx} ${cy} L ${cx - w} ${cy - h / 2} L ${cx - w} ${cy + h / 2} L ${cx} ${cy + h} Z" fill="${colors[2]}"/>`;
+  };
   const auditByKey = {};
   if (audit) for (const bx of audit.boxes || []) auditByKey[bx.key] = bx;
+  const ring = { source: '#ffd9a0', target: '#ff8fc0', overflow: '#7fd4ff' };
 
-  // 同 XZ 不同 Y 的箱子分组（竖叠时错开显示，避免完全重叠）
+  // 同 XZ 不同 Y 的箱子分组（全部层时横向并排，避免叠在一起）
   const groups = new Map(); // "x,z" -> [points]
-  for (const p of points) {
+  for (const p of filtered) {
     const k = `${p.x},${p.z}`;
     if (!groups.has(k)) groups.set(k, []);
     groups.get(k).push(p);
   }
-  const CELL = 40; // 每格尺寸
-  const STACK_GAP = 15; // 同格内每层错开量
 
   let svg = `<svg viewBox="0 0 ${W} ${H}" style="width:100%;background:#120c14;border-radius:14px;border:1px solid #3b273f">`;
-  // 网格
   svg += `<defs><pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
     <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#241826" stroke-width="1"/></pattern></defs>`;
   svg += `<rect width="${W}" height="${H}" fill="url(#grid)"/>`;
@@ -617,36 +632,31 @@ function drawMap(cfg, audit, botId) {
       fill="rgba(255,143,192,0.06)" stroke="rgba(255,143,192,0.5)" stroke-dasharray="6 4" rx="8"/>`;
     svg += `<text x="${X(a.min.x) + 8}" y="${Z(a.min.z) + 18}" fill="#ff8fc0" font-size="12">${esc(a.name)}</text>`;
   }
-  // 容器（贴图 + 同格错开）
-  const ring = { source: '#ffd9a0', target: '#ff8fc0', overflow: '#7fd4ff' };
+  // 容器（立体方块，尺寸不超过格距 85%，同格竖叠横向并排）
+  const isoW = Math.min(16, sx * 0.38, sz * 0.38);
   for (const [k, pts] of groups) {
     const [gx, gz] = k.split(',').map(Number);
     const cx = X(gx), cy = Z(gz);
-    // 同格多个箱子按 y 升序错开
     const sorted = [...pts].sort((a, b) => (a.y || 0) - (b.y || 0));
     sorted.forEach((p, i) => {
       const tip = auditByKey[p.key];
       const blk = tip && tip.blockType ? tip.blockType : null;
-      const img = textureOf(blk);
-      const off = i * STACK_GAP;
-      const size = CELL - 6;
+      const off = i * (isoW * 2 + 4); // 同格多箱横向并排，不重叠
       const content = tip && tip.items && tip.items.length
         ? tip.items.slice(0, 3).map(it => `${it.zhName || it.name} x${it.count}`).join('\n') + (tip.items.length > 3 ? `\n…共 ${tip.items.length} 种` : '')
         : (tip && tip.error ? `识别失败: ${tip.error}` : '未盘点');
       const label = `${typeName(blk)} ${p.label} (${p.x}, ${p.y}, ${p.z})`;
-      svg += `
-      <g>
-        <rect x="${cx - size / 2}" y="${cy - size / 2 + off}" width="${size}" height="${size}" rx="7"
-          fill="${ring[p.type]}" fill-opacity="0.14" stroke="${ring[p.type]}" stroke-width="1.5"/>
-        <image href="/textures/${img}" x="${cx - size / 2 + 4}" y="${cy - size / 2 + 4 + off}" width="${size - 8}" height="${size - 8}"
-          preserveAspectRatio="xMidYMid meet"/>
+      svg += `<g transform="translate(${off},0)">
+        <rect x="${cx - isoW - 2}" y="${cy - isoW - 2}" width="${isoW * 2 + 4}" height="${isoW * 2 + 4}" rx="5"
+          fill="${ring[p.type]}" fill-opacity="0.12" stroke="${ring[p.type]}" stroke-width="1.2"/>
+        ${isoBox(cx, cy, isoW, paletteOf(blk))}
         <title>${esc(label)}\n${esc(content)}</title>
       </g>`;
     });
-    // 坐标标注（格下方）
-    svg += `<text x="${cx}" y="${cy + CELL / 2 + 14 + (sorted.length - 1) * STACK_GAP}" text-anchor="middle" fill="#b89dad" font-size="10" font-family="monospace">${gx},${gz}${sorted.length > 1 ? ` ×${sorted.length}` : ''}</text>`;
+    const labelY = cy + isoW * 1.6 + (sorted.length > 1 ? isoW * (sorted.length - 1) : 0) + 8;
+    svg += `<text x="${cx}" y="${labelY}" text-anchor="middle" fill="#b89dad" font-size="10" font-family="monospace">${gx},${gz}${Number.isFinite(layer) ? ` y=${layer}` : ''}</text>`;
   }
-  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">容器按 MC 方块贴图绘制（悬停查看内容）· 同格竖叠自动错开 · 盘点数据来自开箱识别</text>`;
+  svg += `<text x="14" y="${H - 12}" fill="#6b5570" font-size="11">容器为 MC 等距方块贴图（悬停查看内容）· Y层下拉可单看某层，竖叠自动横向并排 · 盘点数据来自开箱识别</text>`;
   svg += '</svg>';
   $('map-canvas-wrap').innerHTML = svg;
 }
