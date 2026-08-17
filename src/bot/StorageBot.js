@@ -380,12 +380,25 @@ class StorageBot {
 
   /** 维护 tick：先翻源箱，再回返回点（串行） */
   async maintenanceTick() {
-    if (this.connectionState !== 'online' || this.paused) return;
+    if (this.connectionState !== 'online') return;
     if (!this.store || !this.store.parsed) return;
     if (this.task && this.task.state === 'running') return; // 任务运行中不做维护
     if (this._maintenanceRunning) return;
     this._maintenanceRunning = true;
     try {
+      // 0) 自动巡查整理（按 tidyInterval 节流）：目标箱/溢出箱错放物品归位。
+      //    即使全局暂停（溢出箱满等）也执行——整理正是修复溢出箱满/乱放的手段，
+      //    否则暂停后整理停止、溢出箱永远满（恶性循环）。
+      const tidySec = this.store.tidyInterval;
+      if (tidySec > 0) {
+        const now = Date.now();
+        if (!this._lastTidyAt || now - this._lastTidyAt >= tidySec * 1000) {
+          this._lastTidyAt = now;
+          this.enqueue(() => this.tidyAll());
+        }
+      }
+      // 其余维护（翻源箱 / 兜底入库 / 回待机点）尊重全局暂停
+      if (this.paused) return;
       // 1) 定时翻看源箱（按 sourceCheckInterval 节流）
       const sec = this.store.sourceCheckInterval;
       if (sec > 0) {
@@ -395,16 +408,7 @@ class StorageBot {
           this._lastSourceCheck = now;
         }
       }
-      // 2) 自动巡查整理（按 tidyInterval 节流）：目标箱/溢出箱错放物品归位
-      const tidySec = this.store.tidyInterval;
-      if (tidySec > 0) {
-        const now = Date.now();
-        if (!this._lastTidyAt || now - this._lastTidyAt >= tidySec * 1000) {
-          this._lastTidyAt = now;
-          this.enqueue(() => this.tidyAll());
-        }
-      }
-      // 3) 兜底：自动入库开启但背包有残留物品（事件漏触发/上次失败）→ 立即处理；
+      // 2) 兜底：自动入库开启但背包有残留物品（事件漏触发/上次失败）→ 立即处理；
       //    无残留则直接回返回点。放入串行队列，避免与自动入库并发抢寻路。
       await new Promise((resolve) => this.enqueue(async () => {
         try {
