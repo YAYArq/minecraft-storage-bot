@@ -84,6 +84,7 @@ class ChestService {
     // 直线寻路（不走斜线）+ 不破坏方块 + 不放方块（搭桥/垫脚成本设为 100，路径成本超阈值被丢弃）
     const defaultMove = new NoDiagonalMovements(this.bot);
     defaultMove.allowSprinting = sprint === true;
+    defaultMove.allowParkour = true; // 允许跳跃（跳过 1 格空隙/跳上台阶，用户授权）
     defaultMove.canDig = false; // 不破坏任何方块
     defaultMove.placeCost = 100; // 禁止放方块（搭桥/垫脚路径成本 > 100 不可行）
     this.bot.pathfinder.setMovements(defaultMove);
@@ -120,15 +121,27 @@ class ChestService {
       } catch (err2) { /* 兜底：不抛，看当前眼睛到箱子的距离是否已在服务器 reach 内 */ }
     }
     // 距离防护：按服务器原版判定——玩家眼睛到箱子包围盒距离 ≤3 格（interaction range）。
-    // 用"眼睛到包围盒"而非"中心距"：悬空箱/高处的箱子从下方 2~3 格也能点到（玩家正常走路就能点到）。
-    const eye = this.bot.entity.position.offset(0, 1.62, 0); // 生存模式眼睛高度
-    const dx = Math.max(target.x - eye.x, 0, eye.x - (target.x + 1));
-    const dy = Math.max(target.y - eye.y, 0, eye.y - (target.y + 1));
-    const dz = Math.max(target.z - eye.z, 0, eye.z - (target.z + 1));
-    const reachDist = Math.sqrt(dx * dx + dy * dy + dz * dz);
+    // 用"眼睛到包围盒"而非"中心距"：悬空箱/高处的箱子从下方 2~3 格也能点到。
+    const reachOf = () => {
+      const eye = this.bot.entity.position.offset(0, 1.62, 0); // 生存模式眼睛高度
+      const dx = Math.max(target.x - eye.x, 0, eye.x - (target.x + 1));
+      const dy = Math.max(target.y - eye.y, 0, eye.y - (target.y + 1));
+      const dz = Math.max(target.z - eye.z, 0, eye.z - (target.z + 1));
+      return Math.sqrt(dx * dx + dy * dy + dz * dz);
+    };
+    let jumped = false;
+    let reachDist = reachOf();
+    if (reachDist > 2.9 && this.bot.entity.onGround) {
+      // 用户授权：允许跳起来开箱（原地跳起使眼睛升高，够到高处/悬空箱子，不必跳到方块上）
+      this.bot.setControlState('jump', true);
+      await new Promise(resolve => setTimeout(resolve, 300)); // 等跳起到峰值附近
+      jumped = true;
+      reachDist = reachOf(); // 用跳起后的真实位置重算
+    }
     if (reachDist > 2.9) { // 服务器 3.0，留 0.1 余量
+      if (jumped) this.bot.setControlState('jump', false);
       throw Object.assign(
-        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) 眼睛 ${reachDist.toFixed(1)} 格，超出服务器交互距离（reach 3 格），拒绝开箱`),
+        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) 眼睛 ${reachDist.toFixed(1)} 格${jumped ? '（跳起后仍）' : ''}，超出服务器交互距离（reach 3 格），拒绝开箱`),
         { code: 'TOO_FAR', pos }
       );
     }
@@ -140,12 +153,13 @@ class ChestService {
       block = this.bot.blockAt(target);
     }
     if (!isContainerBlock(block)) {
+      if (jumped) this.bot.setControlState('jump', false);
       throw Object.assign(
         new Error(`(${pos.x},${pos.y},${pos.z}) 处不是可打开的容器方块: ${block ? block.name : '未知'}`),
         { code: 'NOT_CONTAINER', pos }
       );
     }
-    this.logger.info(`打开容器 ${block.name} (${pos.x},${pos.y},${pos.z})，距离 ${dist.toFixed(1)} 格，bot 在 (${this.bot.entity.position.x.toFixed(1)}, ${this.bot.entity.position.y.toFixed(1)}, ${this.bot.entity.position.z.toFixed(1)})`);
+    this.logger.info(`打开容器 ${block.name} (${pos.x},${pos.y},${pos.z})，距离 ${dist.toFixed(1)} 格${jumped ? '（跳起）' : ''}，bot 在 (${this.bot.entity.position.x.toFixed(1)}, ${this.bot.entity.position.y.toFixed(1)}, ${this.bot.entity.position.z.toFixed(1)})`);
     let window;
     try {
       // 先对准箱子（准星指向箱子中心），帮助激活容器
@@ -163,6 +177,8 @@ class ChestService {
         new Error(`无法打开容器 (${pos.x},${pos.y},${pos.z}): ${err && err.message ? err.message : err}`),
         { code: 'OPEN_FAILED', pos }
       );
+    } finally {
+      if (jumped) this.bot.setControlState('jump', false); // 开箱结束/失败后停止跳跃
     }
     if (!window) {
       throw Object.assign(new Error(`打开容器 (${pos.x},${pos.y},${pos.z}) 返回空窗口`), { code: 'OPEN_EMPTY', pos });
