@@ -98,6 +98,33 @@ class BotManager {
     return { ok: true, results };
   }
 
+  /** 触发取货：从仓库取出指定物品放取货箱/送货给玩家 */
+  pickup(id, req) {
+    const bot = this.bots.get(id);
+    if (!bot) return { ok: false, message: `bot 不存在: ${id}` };
+    return bot.pickup(req || {});
+  }
+
+  /** 保存取货配置（pickup 段：取货箱坐标/送达方式/返回方式），写盘并热重载 */
+  updatePickupConfig(id, pickup) {
+    const bot = this.bots.get(id);
+    if (!bot || !bot.store) return { ok: false, message: 'bot 的箱子配置未加载' };
+    const json = JSON.parse(bot.store.rawText || '{}');
+    const p = pickup && typeof pickup === 'object' ? pickup : {};
+    const box = p.box && Number.isFinite(Number(p.box.x)) && Number.isFinite(Number(p.box.y)) && Number.isFinite(Number(p.box.z))
+      ? { x: Number(p.box.x), y: Number(p.box.y), z: Number(p.box.z) }
+      : null;
+    json.pickup = {
+      box,
+      deliverMode: ['box', 'tpa', 'tp'].includes(p.deliverMode) ? p.deliverMode : 'box',
+      returnMode: ['home', 'tp'].includes(p.returnMode) ? p.returnMode : 'home',
+      returnHomeCmd: typeof p.returnHomeCmd === 'string' && p.returnHomeCmd.trim() ? p.returnHomeCmd.trim() : '/home'
+    };
+    const result = this.updateStorageConfig(id, json);
+    if (result.ok) result.message = '取货配置已保存';
+    return result;
+  }
+
   /** 单 bot 的箱子配置展示数据 */
   getBotConfigView(id) {
     const bot = this.bots.get(id);

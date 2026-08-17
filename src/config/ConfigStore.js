@@ -271,6 +271,17 @@ class ConfigStore {
     const tidyInterval = Number.isFinite(Number(json.tidyInterval)) && Number(json.tidyInterval) >= 0
       ? Number(json.tidyInterval)
       : 600;
+    // 取货配置：取货箱坐标 / 送达方式（box=放取货箱 tpa=传送到玩家 tp=传送到玩家）/ 返回方式（home=执行指令 tp=传送回待机点）
+    const pickupRaw = json.pickup && typeof json.pickup === 'object' ? json.pickup : {};
+    const pickupBox = pickupRaw.box && ConfigStore.isCoord(pickupRaw.box.x) && ConfigStore.isCoord(pickupRaw.box.y) && ConfigStore.isCoord(pickupRaw.box.z)
+      ? { x: Number(pickupRaw.box.x), y: Number(pickupRaw.box.y), z: Number(pickupRaw.box.z) }
+      : null;
+    const pickup = {
+      box: pickupBox,
+      deliverMode: ['box', 'tpa', 'tp'].includes(pickupRaw.deliverMode) ? pickupRaw.deliverMode : 'box',
+      returnMode: ['home', 'tp'].includes(pickupRaw.returnMode) ? pickupRaw.returnMode : 'home',
+      returnHomeCmd: typeof pickupRaw.returnHomeCmd === 'string' && pickupRaw.returnHomeCmd ? pickupRaw.returnHomeCmd : '/home'
+    };
 
     // ---- 用户附加中文词典 ----
     if (json.zhNameMap && typeof json.zhNameMap === 'object') {
@@ -286,7 +297,7 @@ class ConfigStore {
     }
 
     this.loadWarnings = warnings;
-    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval, tidyInterval };
+    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval, tidyInterval, pickup };
   }
 
   // ---------- 保存前规范化 ----------
@@ -352,6 +363,9 @@ class ConfigStore {
   get freeSlotThreshold() { return this.parsed ? this.parsed.freeSlotThreshold : 6; }
   get sourceCheckInterval() { return this.parsed ? this.parsed.sourceCheckInterval : 120; }
   get tidyInterval() { return this.parsed ? this.parsed.tidyInterval : 600; }
+  get pickup() {
+    return this.parsed ? this.parsed.pickup : { box: null, deliverMode: 'box', returnMode: 'home', returnHomeCmd: '/home' };
+  }
 
   /** 面板展示用：返回解析后的配置快照（含中文名） */
   toJSON() {
@@ -367,6 +381,7 @@ class ConfigStore {
       standbyPoint: this.standbyPoint,
       sourceCheckInterval: this.sourceCheckInterval,
       tidyInterval: this.tidyInterval,
+      pickup: this.pickup,
       warnings: this.loadWarnings
     };
   }

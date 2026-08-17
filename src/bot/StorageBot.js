@@ -1,5 +1,6 @@
 'use strict';
 
+const fs = require('fs');
 const path = require('path');
 const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
@@ -111,6 +112,8 @@ class StorageBot {
         this.logger.error(`箱子配置加载失败: ${res.error}`);
       }
     }
+    // 加载上次盘点结果（库存界面持久显示；新盘点覆盖）
+    this.loadAudit();
   }
 
   // ================= 生命周期 =================
@@ -760,6 +763,97 @@ class StorageBot {
     return { ok: true, message: '整理任务已开始（结果见日志）' };
   }
 
+  /**
+   * 取货：从仓库（按盘点数据定位）取出指定物品，放到取货箱或 tpa/tp 送货给玩家，然后 home/tp 回待机点。
+   * @param {{items:{name:string,count:number}[], player?:string, mode?:'box'|'tpa'|'tp'}} req
+   */
+  pickup(req) {
+    if (this.connectionState !== 'online') return { ok: false, message: 'bot 未在线' };
+    if (!this.audit || !this.audit.boxes) return { ok: false, message: '尚无库存盘点数据，请先在库存盘点页执行盘点' };
+    if (!Array.isArray(req.items) || !req.items.length) return { ok: false, message: '请选择要取出的物品' };
+    if (this.task && this.task.state === 'running') return { ok: false, message: '任务运行中，请稍后再试' };
+    this.enqueue(async () => {
+      const logger = this.logger;
+      const cfg = this.store.pickup || {};
+      const mode = ['box', 'tpa', 'tp'].includes(req.mode) ? req.mode : (cfg.deliverMode || 'box');
+      const player = String(req.player || '').trim();
+      if ((mode === 'tpa' || mode === 'tp') && !player) { logger.error('[取货] 送达模式（tpa/tp）需要填写收货玩家'); return; }
+      if (mode === 'box' && !cfg.box) { logger.error('[取货] 未配置取货箱坐标（配置 pickup.box）'); return; }
+      logger.info(`[取货] 开始：${req.items.map(i => `${i.name} x${i.count || 64}`).join(', ')}${player ? ` 给 ${player}` : ''}（送达：${mode}，返回：${cfg.returnMode || 'home'}）`);
+      // —— 1) 按盘点数据定位箱子并取货 ——
+      const collected = []; // { item:{name,count}, std }
+      for (const r of req.items) {
+        const std = this.classifier.resolveRef(r.name);
+        if (!std) { logger.error(`[取货] 无法解析物品: ${r.name}`); continue; }
+        let remaining = Number(r.count) || 64;
+        const boxes = this.audit.boxes.filter(bx => bx.items && bx.items.some(it => it.name === std.name));
+        if (!boxes.length) { logger.error(`[取货] 盘点数据中找不到 ${std.zhName}（物品可能不在任何箱子/未盘点）`); continue; }
+        for (const bx of boxes) {
+          if (remaining <= 0) break;
+          let window = null;
+          try {
+            window = await this.chest.openContainerAt(bx);
+            const found = window.containerItems().find(it => it.name === std.name);
+            if (!found || found.count <= 0) continue;
+            const take = Math.min(remaining, found.count);
+            await window.withdraw(found.type, found.metadata || 0, take);
+            remaining -= take;
+            collected.push({ item: { name: std.name, count: take }, std });
+            logger.info(`[取货] 从 (${bx.key}) 取出 ${std.zhName} x${take}`);
+          } catch (err) {
+            logger.error(`[取货] 箱子 (${bx.key}) 操作失败: ${err.message}`);
+          } finally {
+            if (window) this.chest.close(window);
+          }
+        }
+        if (remaining > 0) logger.warn(`[取货] ${std.zhName} 仅取到 ${(Number(r.count) || 64) - remaining}/${Number(r.count) || 64}`);
+      }
+      if (!collected.length) { logger.error('[取货] 未能取出任何物品'); return; }
+      // —— 2) 送达 ——
+      if (mode === 'box') {
+        let w = null;
+        try {
+          w = await this.chest.openContainerAt(cfg.box);
+          for (const { item, std } of collected) {
+            const moved = await this.chest.put(w, std, item.count);
+            logger.info(`[取货] 放入取货箱 ${std.zhName} x${moved || item.count}`);
+          }
+        } catch (err) {
+          logger.error(`[取货] 取货箱 (${cfg.box.x},${cfg.box.y},${cfg.box.z}) 打开失败: ${err.message}`);
+        } finally {
+          if (w) this.chest.close(w);
+        }
+      } else {
+        // tpa/tp 送货：传送到玩家附近，把物品丢到地上给玩家
+        const cmd = mode === 'tpa' ? `/tpa ${player}` : `/tp ${player}`;
+        logger.info(`[取货] 执行 ${cmd}`);
+        try { this.bot.chat(cmd); } catch (e) { logger.error(`[取货] 发送传送指令失败: ${e.message}`); }
+        await new Promise(resolve => setTimeout(resolve, 4000)); // 等待传送
+        for (const { item, std } of collected) {
+          try {
+            const invItem = this.bot.inventory.items().find(i => i.name === item.name);
+            if (invItem) {
+              await this.bot.tossStack(invItem, item.count);
+              logger.info(`[取货] 已把 ${std.zhName} x${item.count} 丢给 ${player}`);
+            }
+          } catch (err) {
+            logger.error(`[取货] 丢出 ${std.zhName} 失败: ${err.message}`);
+          }
+        }
+      }
+      // —— 3) 返回 ——
+      if (cfg.returnMode === 'home') {
+        const cmd = cfg.returnHomeCmd || '/home';
+        try { this.bot.chat(cmd); logger.info(`[取货] 已执行返回指令 ${cmd}`); } catch (e) { logger.error(`[取货] 返回指令失败: ${e.message}`); }
+      } else {
+        await this.goStandby();
+        logger.info('[取货] 已回待机点');
+      }
+      logger.info('[取货] 完成');
+    });
+    return { ok: true, message: '取货任务已开始（结果见日志）' };
+  }
+
   /** 存入溢出箱：按配置顺序尝试，存满自动换下一个；全部溢出箱满则暂停全部任务 */
   async depositToOverflow(entries) {
     const boxes = await this.resolveOverflowBoxes();
@@ -1084,6 +1178,7 @@ class StorageBot {
         items: summaryItems
       };
       this.audit = result;
+      this.saveAudit(result); // 持久化：重启/刷新后库存界面仍显示上次盘点
       this.logger.info(`库存盘点完成：共 ${result.boxes.length} 个箱子，合计 ${result.summary.totalCount} 件 / ${result.summary.totalKinds} 种物品`);
       // 盘点结束：回到默认挂机点（返回点）
       await this.goStandby();
@@ -1095,6 +1190,37 @@ class StorageBot {
 
   getAudit() {
     return this.audit;
+  }
+
+  /** 盘点结果持久化路径（与 storage_box.json 同目录 audit.json） */
+  auditFilePath() {
+    if (!this.storageConfigPath) return null;
+    return path.join(path.dirname(this.storageConfigPath), 'audit.json');
+  }
+
+  /** 保存盘点结果到文件（下次盘点覆盖更新） */
+  saveAudit(audit) {
+    const p = this.auditFilePath();
+    if (!p) return;
+    try {
+      fs.writeFileSync(p, JSON.stringify(audit, null, 2));
+    } catch (e) {
+      this.logger.error(`保存盘点结果失败: ${e.message}`);
+    }
+  }
+
+  /** 启动时加载上次盘点结果（库存界面持久显示） */
+  loadAudit() {
+    const p = this.auditFilePath();
+    if (!p) return;
+    try {
+      if (fs.existsSync(p)) {
+        this.audit = JSON.parse(fs.readFileSync(p, 'utf8'));
+        this.logger.info(`已加载上次库存盘点（${this.audit.finishedAt ? new Date(this.audit.finishedAt).toLocaleString() : '时间未知'}，${this.audit.summary ? this.audit.summary.totalKinds : 0} 种物品）`);
+      }
+    } catch (e) {
+      this.logger.warn(`加载上次盘点结果失败: ${e.message}`);
+    }
   }
 }
 

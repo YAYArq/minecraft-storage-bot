@@ -180,6 +180,20 @@ class HttpServer {
           return this.json(res, result.ok ? 200 : 400, result);
         });
       }
+      if (parts.length === 3 && parts[0] === 'bots' && parts[2] === 'pickup' && req.method === 'POST') {
+        // POST /api/bots/:id/pickup —— 取货：取出指定物品放取货箱/送货给玩家
+        return this.readBody(req).then(body => {
+          const result = this.manager.pickup(parts[1], body);
+          return this.json(res, result.ok ? 200 : 400, result);
+        });
+      }
+      if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'pickup' && parts[3] === 'config' && req.method === 'PUT') {
+        // PUT /api/bots/:id/pickup/config —— 保存取货配置（取货箱/送达/返回）
+        return this.readBody(req).then(body => {
+          const result = this.manager.updatePickupConfig(parts[1], body);
+          return this.json(res, result.ok ? 200 : 400, result);
+        });
+      }
       if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'boxes' && parts[3] === 'delete' && req.method === 'POST') {
         // POST /api/bots/:id/boxes/delete —— 删除某个箱子/区域条目
         return this.readBody(req).then(body => {

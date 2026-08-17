@@ -151,3 +151,17 @@ test('tidyInterval 自动巡查间隔解析（默认 600 秒，可配置）', ()
   store2.load();
   assert.strictEqual(store2.tidyInterval, 600); // 默认
 });
+
+test('pickup 取货配置解析（取货箱/送达/返回）', () => {
+  const json = { ...VALID, pickup: { box: { x: 1, y: 2, z: 3 }, deliverMode: 'tpa', returnMode: 'home', returnHomeCmd: '/sethome' } };
+  const store = new ConfigStore(tmpConfig(json), classifier);
+  const parsed = store.load();
+  assert.deepStrictEqual(parsed.pickup.box, { x: 1, y: 2, z: 3 });
+  assert.strictEqual(parsed.pickup.deliverMode, 'tpa');
+  assert.strictEqual(parsed.pickup.returnMode, 'home');
+  assert.strictEqual(parsed.pickup.returnHomeCmd, '/sethome');
+  // 非法值回退默认
+  const store2 = new ConfigStore(tmpConfig({ ...VALID, pickup: { deliverMode: 'xxx' } }), classifier);
+  store2.load();
+  assert.strictEqual(store2.pickup.deliverMode, 'box');
+});

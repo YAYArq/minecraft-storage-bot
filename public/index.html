@@ -24,7 +24,8 @@
         <button class="main-tab" data-view="chat" title="05 聊天与指令"><span class="nav-ico">05</span><span class="nav-label">聊天与指令</span></button>
         <button class="main-tab" data-view="configs" title="06 配置"><span class="nav-ico">06</span><span class="nav-label">配置</span></button>
         <button class="main-tab" data-view="settings" title="07 系统设置"><span class="nav-ico">07</span><span class="nav-label">系统设置</span></button>
-        <button class="main-tab" data-view="logs" title="08 日志"><span class="nav-ico">08</span><span class="nav-label">日志</span></button>
+        <button class="main-tab" data-view="pickup" title="08 取货"><span class="nav-ico">08</span><span class="nav-label">取货</span></button>
+        <button class="main-tab" data-view="logs" title="09 日志"><span class="nav-ico">09</span><span class="nav-label">日志</span></button>
       </nav>
       <div class="sidebar-status">
         <span id="conn-status" class="conn-status">--</span>
@@ -371,10 +372,63 @@
         </div>
       </section>
 
-      <!-- ============ 08 日志 ============ -->
-      <section class="sec hidden" id="sec-logs">
+      <!-- ============ 08 取货 ============ -->
+      <section class="sec hidden" id="sec-pickup">
         <header class="sec-head">
           <span class="sec-no">08</span>
+          <h2 class="sec-title">取货</h2>
+          <span class="list-summary">从仓库取出物品放到取货箱，或 tpa/tp 送货给玩家（物品只能从上次盘点结果中选择）</span>
+        </header>
+        <div class="toolbar">
+          <label class="form-label" style="flex-direction:row;align-items:center;display:flex;gap:8px">选择实例
+            <select id="pickup-bot" class="select" style="width:auto"></select>
+          </label>
+          <button id="pickup-refresh" class="btn btn-sm">刷新</button>
+          <span id="pickup-result" class="command-result" style="margin:0"></span>
+        </div>
+
+        <div class="panel" style="margin-bottom:12px">
+          <div class="panel-title">取货配置</div>
+          <div class="vis-row">
+            <span class="corner-title">取货箱坐标</span>
+            <input id="pk-boxx" type="number" class="input mono-input" placeholder="x" style="width:90px">
+            <input id="pk-boxy" type="number" class="input mono-input" placeholder="y" style="width:90px">
+            <input id="pk-boxz" type="number" class="input mono-input" placeholder="z" style="width:90px">
+            <span class="corner-title" style="margin-left:12px">送达模式</span>
+            <select id="pk-mode" class="select" style="width:auto">
+              <option value="box">box（放取货箱）</option>
+              <option value="tpa">tpa（传送到玩家）</option>
+              <option value="tp">tp（传送到玩家）</option>
+            </select>
+            <span class="corner-title" style="margin-left:12px">返回方式</span>
+            <select id="pk-return" class="select" style="width:auto">
+              <option value="home">home（指令）</option>
+              <option value="tp">tp（传送回待机点）</option>
+            </select>
+            <input id="pk-homecmd" type="text" class="input mono-input" placeholder="/home" style="width:90px">
+            <button id="pk-savecfg" class="btn btn-sm btn-primary">保存配置</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-title">取货操作（物品来自上次库存盘点）</div>
+          <div class="vis-row">
+            <span class="corner-title">收货玩家</span>
+            <input id="pk-player" type="text" class="input" placeholder="tpa/tp 模式必填，box 模式可留空" style="width:220px">
+            <span class="panel-hint" style="margin:0">未盘点或无物品时，请先到「库存盘点」页执行盘点</span>
+          </div>
+          <div id="pk-items" class="vis-list"></div>
+          <div class="config-toolbar">
+            <button id="pk-start" class="btn btn-primary">开始取货</button>
+            <span class="panel-hint">勾选物品并填数量（默认 64/组），可多选</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============ 09 日志 ============ -->
+      <section class="sec hidden" id="sec-logs">
+        <header class="sec-head">
+          <span class="sec-no">09</span>
           <h2 class="sec-title">日志</h2>
           <span class="list-summary">全部 bot 实时日志</span>
         </header>

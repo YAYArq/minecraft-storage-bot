@@ -122,6 +122,7 @@ function switchView(view) {
   if (view === 'map') renderMap();
   if (view === 'tasks') loadTasks();
   if (view === 'inventory') loadAudit();
+  if (view === 'pickup') loadPickup();
   if (view === 'configs') loadConfigs();
   if (view === 'settings') loadSettings();
   if (view === 'instances' && state.selectedId) loadConfigEditor();
@@ -188,7 +189,7 @@ function renderInstances() {
 }
 
 function fillBotSelects() {
-  for (const sel of ['map-bot', 'inv-bot', 'chat-bot']) {
+  for (const sel of ['map-bot', 'inv-bot', 'chat-bot', 'pickup-bot']) {
     const el = $(sel);
     if (!el) continue;
     const prev = el.value;
@@ -866,6 +867,88 @@ async function loadTasks() {
   }).join('');
 }
 
+/* ================= 取货 ================= */
+function showPickupResult(ok, msg) {
+  const el = $('pickup-result');
+  el.textContent = msg || '';
+  el.style.color = ok ? '#22c55e' : '#ef4444';
+}
+
+async function loadPickup() {
+  const id = $('pickup-bot').value || (state.bots[0] && state.bots[0].id);
+  if (!id) { $('pk-items').innerHTML = '<div class="empty-state">无实例</div>'; return; }
+  // 加载取货配置
+  try {
+    const r = await api(`/api/bots/${encodeURIComponent(id)}/boxes`);
+    const pk = (r.config && r.config.pickup) || {};
+    $('pk-boxx').value = pk.box ? pk.box.x : '';
+    $('pk-boxy').value = pk.box ? pk.box.y : '';
+    $('pk-boxz').value = pk.box ? pk.box.z : '';
+    $('pk-mode').value = pk.deliverMode || 'box';
+    $('pk-return').value = pk.returnMode || 'home';
+    $('pk-homecmd').value = pk.returnHomeCmd || '/home';
+  } catch (e) { /* 忽略 */ }
+  // 加载盘点物品（只能从盘点结果选）
+  try {
+    const r = await api(`/api/bots/${encodeURIComponent(id)}/audit`);
+    const a = r.audit;
+    if (!a || !a.summary || !a.summary.items || !a.summary.items.length) {
+      $('pk-items').innerHTML = '<div class="panel-hint">暂无盘点数据，请先到「库存盘点」页执行盘点（取货物品只能从盘点结果中选择）</div>';
+      return;
+    }
+    $('pk-items').innerHTML = a.summary.items.map((it, i) => `
+      <div class="vis-row">
+        <label class="radio-label" style="display:flex;align-items:center;gap:8px;flex:1">
+          <input type="checkbox" class="pk-check" data-i="${i}" checked>
+          <span>${esc(it.zhName || it.name)}（库存 ${it.count}）</span>
+        </label>
+        <input type="number" class="input mono-input pk-count" data-i="${i}" value="64" min="1" max="${it.count}" style="width:90px">
+        <input type="hidden" class="pk-name" data-i="${i}" value="${esc('minecraft:' + it.name)}">
+      </div>`).join('');
+  } catch (e) {
+    $('pk-items').innerHTML = '<div class="empty-state">加载盘点失败</div>';
+  }
+}
+
+function bindPickup() {
+  $('pickup-bot').onchange = () => loadPickup();
+  $('pickup-refresh').onclick = () => loadPickup();
+  $('pk-savecfg').onclick = async () => {
+    const id = $('pickup-bot').value;
+    if (!id) { showPickupResult(false, '未选择实例'); return; }
+    const box = { x: Number($('pk-boxx').value), y: Number($('pk-boxy').value), z: Number($('pk-boxz').value) };
+    const body = {
+      box: [box.x, box.y, box.z].every(n => Number.isFinite(n)) ? box : null,
+      deliverMode: $('pk-mode').value,
+      returnMode: $('pk-return').value,
+      returnHomeCmd: $('pk-homecmd').value
+    };
+    try {
+      const r = await api(`/api/bots/${encodeURIComponent(id)}/pickup/config`, { method: 'PUT', body: JSON.stringify(body) });
+      showPickupResult(r.ok, r.message);
+    } catch (e) { showPickupResult(false, '保存配置请求失败: ' + (e.message || e)); }
+  };
+  $('pk-start').onclick = async () => {
+    const id = $('pickup-bot').value;
+    if (!id) { showPickupResult(false, '未选择实例'); return; }
+    const items = [];
+    document.querySelectorAll('.pk-check').forEach(c => {
+      if (!c.checked) return;
+      const i = c.dataset.i;
+      items.push({
+        name: document.querySelector(`.pk-name[data-i="${i}"]`).value,
+        count: Number(document.querySelector(`.pk-count[data-i="${i}"]`).value) || 64
+      });
+    });
+    if (!items.length) { showPickupResult(false, '请至少勾选一种物品'); return; }
+    const body = { items, player: $('pk-player').value.trim(), mode: $('pk-mode').value };
+    try {
+      const r = await api(`/api/bots/${encodeURIComponent(id)}/pickup`, { method: 'POST', body: JSON.stringify(body) });
+      showPickupResult(r.ok, r.message);
+    } catch (e) { showPickupResult(false, '取货请求失败: ' + (e.message || e)); }
+  };
+}
+
 /* ================= 库存盘点 ================= */
 async function loadAudit() {
   const id = $('inv-bot').value || (state.bots[0] && state.bots[0].id);
@@ -1129,6 +1212,7 @@ function bindEvents() {
   $('vis-add-tgt').onclick = () => { if (!state.vis) return; state.vis.targets.push({ x: '', y: '', z: '', category: '', items: '' }); renderVis(); };
   $('vis-add-ovf').onclick = () => { if (!state.vis) return; state.vis.overflows.pts.push({ x: '', y: '', z: '' }); renderVis(); };
   bindAreaOps();
+  bindPickup();
   $('vis-save').onclick = async () => {
     const b = curBot(); if (!b) return;
     const cfg = collectVis();
