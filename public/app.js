@@ -349,12 +349,21 @@ function areaType() {
 function readAreaCorners() {
   // 注意：必须用字符串 id——裸标识符 ar1x 会被浏览器解析成 window.ar1x（DOM 元素本身），
   // 导致 $(ar1x) 为 null 崩溃（此前静默失败：点击扫描/添加无反应）
-  const nums = ['ar1x', 'ar1y', 'ar1z', 'ar2x', 'ar2y', 'ar2z'].map(id => Number($(id).value));
-  if (!nums.every(n => Number.isFinite(n))) return null;
-  return {
-    corner1: { x: nums[0], y: nums[1], z: nums[2] },
-    corner2: { x: nums[3], y: nums[4], z: nums[5] }
-  };
+  const ids = ['ar1x', 'ar1y', 'ar1z', 'ar2x', 'ar2y', 'ar2z'];
+  const nums = ids.map(id => Number($(id).value));
+  // 未填满（空值/默认 0 视为未填）或两个对角相同（0,0,0~0,0,0 退化区域）视为无效
+  if (!nums.every(n => Number.isFinite(n) && n !== 0)) return null;
+  const c1 = { x: nums[0], y: nums[1], z: nums[2] };
+  const c2 = { x: nums[3], y: nums[4], z: nums[5] };
+  if (c1.x === c2.x && c1.y === c2.y && c1.z === c2.z) return null;
+  return { corner1: c1, corner2: c2 };
+}
+
+/** 对角坐标未填满/退化时禁用「扫描」「添加」按钮 */
+function updateAreaButtons() {
+  const ok = readAreaCorners() !== null;
+  $('area-scan').disabled = !ok;
+  $('area-add').disabled = !ok;
 }
 
 function bindAreaOps() {
@@ -364,6 +373,11 @@ function bindAreaOps() {
       $('area-category-row').style.display = el.value === 'target' ? 'flex' : 'none';
     });
   });
+  // 对角坐标输入时实时校验：未填满/退化则禁用「扫描」「添加」按钮
+  ['ar1x', 'ar1y', 'ar1z', 'ar2x', 'ar2y', 'ar2z'].forEach(id => {
+    $(id).addEventListener('input', updateAreaButtons);
+  });
+  updateAreaButtons();
   $('area-scan').onclick = async () => {
     try {
       const c = readAreaCorners();
