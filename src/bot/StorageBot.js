@@ -665,6 +665,64 @@ class StorageBot {
     }
   }
 
+  /**
+   * 整理目标箱：打开每个目标箱，取出与本箱绑定物品不符的错放物品，
+   * 按各自分类放回对应目标箱（无匹配/箱满则进溢出箱）。放入串行队列执行。
+   * 未绑定物品清单（items 为空）的箱子跳过，避免误清。
+   */
+  tidyTargetBoxes() {
+    if (this.connectionState !== 'online') return { ok: false, message: 'bot 未在线' };
+    if (this.task && this.task.state === 'running') return { ok: false, message: '重分类任务运行中，请稍后再试' };
+    this.enqueue(async () => {
+      const logger = this.logger;
+      const tbs = await this.resolveTargetBoxes();
+      const stray = []; // 错放物品 { item, from }
+      let moved = 0;
+      for (const tb of tbs) {
+        if (!tb.items || !tb.items.length) {
+          logger.warn(`[整理] 目标箱 (${tb.key}) 未绑定物品清单，跳过`);
+          continue;
+        }
+        let window = null;
+        try {
+          window = await this.chest.openContainerAt(tb);
+          const wrong = window.containerItems().filter(it =>
+            !tb.items.some(w => w.id === it.type || w.name === it.name)
+          );
+          for (const it of wrong) {
+            const std = this.classifier.itemOf(it);
+            await window.withdraw(it.type, it.metadata || 0, it.count);
+            stray.push({ item: it, std, from: tb });
+            moved += it.count;
+            logger.info(`[整理] 从目标箱 (${tb.key}) [${tb.category}] 取出错放物品 ${std ? std.zhName : it.name} x${it.count}`);
+          }
+        } catch (err) {
+          logger.error(`[整理] 目标箱 (${tb.key}) 打开失败: ${err.message}`);
+        } finally {
+          if (window) this.chest.close(window);
+        }
+      }
+      if (!stray.length) {
+        logger.info('[整理] 目标箱检查完毕，没有发现错放物品');
+        return;
+      }
+      // 归位：按分类放回对应目标箱；无匹配/箱满 -> 溢出箱
+      let toOverflow = 0;
+      for (const { item, std, from } of stray) {
+        const tgt = await this.matchTargetBoxes(std);
+        if (tgt.length) {
+          logger.info(`[整理] 归位 ${std.zhName} x${item.count} -> 分类 [${tgt[0].category}]（原在 ${from.key}）`);
+          await this.depositToTargetBox(tgt[0].category, [{ item, std }]);
+        } else {
+          toOverflow += item.count;
+          await this.depositToOverflow([{ item, std }]);
+        }
+      }
+      logger.info(`[整理] 完成：共取出错放物品 ${moved} 件，归位到对应分类箱 / 溢出箱`);
+    });
+    return { ok: true, message: '整理任务已开始（结果见日志）' };
+  }
+
   /** 存入溢出箱：按配置顺序尝试，存满自动换下一个；全部溢出箱满则暂停全部任务 */
   async depositToOverflow(entries) {
     const boxes = await this.resolveOverflowBoxes();
@@ -825,6 +883,11 @@ class StorageBot {
         const under = this.bot.blockAt(vec3(Math.floor(e.position.x), Math.floor(e.position.y - 1), Math.floor(e.position.z)));
         this.logger.info(`[diagmove] 脚下方块: ${under ? `${under.name} (${under.boundingBox})` : 'null'} 站在格内 y=${e.position.y % 1 !== 0 ? '悬浮(非整数)' : '整数'}`);
         return { ok: true, message: 'diagmove 已输出到日志' };
+      }
+      case 'tidy':
+      case 'tidytarget': {
+        // 整理目标箱：取出错放物品并归位到对应分类箱/溢出箱
+        return this.tidyTargetBoxes();
       }
       case 'gototest': {
         // 调试：让 bot 寻路到指定坐标（排查半砖/楼梯寻路）
