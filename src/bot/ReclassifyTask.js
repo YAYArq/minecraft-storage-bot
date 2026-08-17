@@ -283,7 +283,7 @@ class ReclassifyTask {
     const items = owner.chest.inventoryItems();
     if (!items.length) return;
 
-    const byTarget = new Map(); // targetKey -> { tb, entries:[{item,std}] }
+    const byTarget = new Map(); // category -> { category, entries:[{item,std}] }
     const overflowEntries = [];
 
     for (const it of items) {
@@ -292,19 +292,21 @@ class ReclassifyTask {
         owner.logger.debug(`无法识别物品，跳过: ${it.name || it.type}`);
         continue;
       }
-      const tb = owner.store.matchTargetBox(std);
-      if (tb) {
-        if (!byTarget.has(tb.key)) byTarget.set(tb.key, { tb, entries: [] });
-        byTarget.get(tb.key).entries.push({ item: it, std });
+      const tbs = await owner.matchTargetBoxes(std);
+      if (tbs.length) {
+        // 同一分类多个箱子（含对角区域展开）共享一批物品，deposit 时按箱子轮询
+        const cat = tbs[0].category || tbs[0].key;
+        if (!byTarget.has(cat)) byTarget.set(cat, { category: cat, entries: [] });
+        byTarget.get(cat).entries.push({ item: it, std });
       } else {
         overflowEntries.push({ item: it, std });
       }
     }
 
-    // 目标箱：一次开箱放入该箱全部匹配物品
-    for (const { tb, entries } of byTarget.values()) {
+    // 目标分类：按分类箱子列表轮询放入
+    for (const { category, entries } of byTarget.values()) {
       await this._checkpoint();
-      await this._depositToTargetBox(tb, entries);
+      await this._depositToTargetBox(category, entries);
     }
 
     // 溢出箱
@@ -314,30 +316,46 @@ class ReclassifyTask {
     }
   }
 
-  /** 存入目标箱；满了的剩余物品转溢出箱 */
-  async _depositToTargetBox(tb, entries) {
+  /** 存入目标分类：同一分类可多个箱子（含对角区域展开），按顺序轮询直到放完；全满转溢出箱 */
+  async _depositToTargetBox(category, entries) {
     const owner = this.owner;
     const logger = owner.logger;
-    let window = null;
-    try {
-      window = await owner.chest.openContainerAt(tb);
-      const toOverflow = [];
-      for (const { item, std } of entries) {
-        const moved = await owner.chest.put(window, std, item.count);
-        if (moved > 0) {
-          logger.info(`[重分类] ${std.zhName} x${moved} -> 目标箱 (${tb.key}) [${tb.category}]`);
+    const tbs = (await owner.resolveTargetBoxes()).filter(tb => tb.category === category);
+    if (!tbs.length) {
+      const names = entries.map(e => `${e.std.zhName} x${e.item.count}`).join('、');
+      logger.error(`[重分类] 目标分类 [${category}] 没有可用箱子（物品 ${names} 暂留背包）`);
+      return;
+    }
+    logger.info(`[重分类] 存入目标分类 [${category}]（${tbs.length} 个箱子）`);
+    let remaining = entries;
+    for (const tb of tbs) {
+      if (!remaining.length) break;
+      let window = null;
+      try {
+        window = await owner.chest.openContainerAt(tb);
+        const still = [];
+        for (const { item, std } of remaining) {
+          const moved = await owner.chest.put(window, std, item.count);
+          if (moved > 0) {
+            logger.info(`[重分类] ${std.zhName} x${moved} -> 目标箱 (${tb.key}) [${tb.category}]`);
+          }
+          if (moved < item.count) {
+            const left = item.count - moved;
+            logger.warn(`[重分类] 目标箱 (${tb.key}) [${tb.category}] 已满，${std.zhName} x${left} 尝试下一个`);
+            still.push({ item: { ...item, count: left }, std });
+          }
         }
-        if (moved < item.count) {
-          const left = item.count - moved;
-          logger.warn(`[重分类] 目标箱 (${tb.key}) [${tb.category}] 已满，${std.zhName} x${left} 转溢出箱`);
-          toOverflow.push({ item: { ...item, count: left }, std });
-        }
+        remaining = still;
+      } catch (err) {
+        logger.error(`[重分类] 目标箱 (${tb.key}) [${category}] 打开失败: ${err.message}`);
+      } finally {
+        if (window) owner.chest.close(window);
       }
-      if (toOverflow.length) {
-        await this._depositToOverflow(toOverflow);
-      }
-    } finally {
-      if (window) owner.chest.close(window);
+    }
+    if (remaining.length) {
+      const names = remaining.map(r => `${r.std.zhName} x${r.item.count}`).join('、');
+      logger.warn(`[重分类] 目标分类 [${category}] 全部箱子已满/失败，${names} 转溢出箱`);
+      await this._depositToOverflow(remaining);
     }
   }
 

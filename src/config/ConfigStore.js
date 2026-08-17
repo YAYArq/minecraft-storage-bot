@@ -55,6 +55,32 @@ class ConfigStore {
     return [];
   }
 
+  /**
+   * 解析物品引用列表（数字 id / minecraft:name / 中文名 / 空格逗号分隔多物品），按物品 id 去重。
+   * 允许空数组（区域目标箱 items 由用户后台填写）。
+   * @param {Array} refs
+   * @param {string} label 错误提示前缀
+   * @param {Array} errors
+   * @param {Array} warnings
+   * @returns {Array<{id,name,displayName,zhName,stackSize}>}
+   */
+  resolveItems(refs, label, errors, warnings) {
+    const itemsById = new Map();
+    if (Array.isArray(refs)) {
+      for (const ref of refs) {
+        const resolved = this.resolveRefList(ref);
+        if (resolved.length) {
+          for (const item of resolved) {
+            if (!itemsById.has(item.id)) itemsById.set(item.id, item);
+          }
+        } else {
+          warnings.push(`${label} 无法解析物品引用: ${JSON.stringify(ref)}（已忽略）`);
+        }
+      }
+    }
+    return [...itemsById.values()];
+  }
+
   /** 解析箱子条目：支持单箱 {x,y,z} 或对角区域 {min:{x,y,z}, max:{x,y,z}}。
    * 区域表示该立方体内所有容器方块都视为这类箱子。
    * 非法条目返回 null（由调用方收集错误）。
@@ -120,16 +146,28 @@ class ConfigStore {
     if (Array.isArray(json.targetBoxes) && json.targetBoxes.length > 0) {
       const seen = new Set();
       for (const tb of json.targetBoxes) {
-        if (!tb || !ConfigStore.isCoord(tb.x) || !ConfigStore.isCoord(tb.y) || !ConfigStore.isCoord(tb.z)) {
-          errors.push(`目标分类箱配置缺少合法坐标: ${JSON.stringify(tb)}`);
+        const parsed = ConfigStore.parseBoxEntry(tb, '目标分类箱', errors);
+        if (!parsed) continue;
+        if (seen.has(parsed.key)) {
+          errors.push(`目标分类箱坐标重复: ${parsed.key}`);
           continue;
         }
-        const key = keyOf(tb.x, tb.y, tb.z);
-        if (seen.has(key)) {
-          errors.push(`目标分类箱坐标重复: ${key}`);
+        seen.add(parsed.key);
+        if (parsed.type === 'area') {
+          // 对角区域目标箱：区域内所有箱子视为同一分类；items 允许为空（用户后台填写）
+          const items = this.resolveItems(tb.items, `目标分类箱区域 ${parsed.key}`, errors, warnings);
+          targetBoxes.push({
+            type: 'area',
+            min: parsed.min,
+            max: parsed.max,
+            key: parsed.key,
+            category: typeof tb.category === 'string' && tb.category ? tb.category : (items[0] ? items[0].zhName : '未分类'),
+            items
+          });
           continue;
         }
-        seen.add(key);
+        const x = parsed.x, y = parsed.y, z = parsed.z;
+        const key = parsed.key;
         if (!Array.isArray(tb.items) || tb.items.length === 0) {
           errors.push(`目标分类箱 ${key} 缺少 items 物品列表`);
           continue;
@@ -152,7 +190,7 @@ class ConfigStore {
           continue;
         }
         targetBoxes.push({
-          x: Number(tb.x), y: Number(tb.y), z: Number(tb.z), key,
+          x, y, z, key,
           category: typeof tb.category === 'string' && tb.category ? tb.category : items[0].zhName,
           items
         });
@@ -269,7 +307,7 @@ class ConfigStore {
               }
             } else {
               norm.push(ref); // 解析失败保留原值
-              warnings.push(`目标箱 ${tb.x},${tb.y},${tb.z} 无法解析物品引用: ${JSON.stringify(ref)}`);
+              warnings.push(`目标箱 ${tb.key || `${tb.x},${tb.y},${tb.z}`} 无法解析物品引用: ${JSON.stringify(ref)}`);
             }
           }
           tb.items = norm;
@@ -313,10 +351,9 @@ class ConfigStore {
       batchSize: this.batchSize,
       freeSlotThreshold: this.freeSlotThreshold,
       sourceBoxes: this.sourceBoxes,
-      targetBoxes: this.targetBoxes.map(tb => ({
-        x: tb.x, y: tb.y, z: tb.z, category: tb.category,
-        items: tb.items.map(it => ({ id: it.id, name: it.name, zhName: it.zhName }))
-      })),
+      targetBoxes: this.targetBoxes.map(tb => tb.type === 'area'
+        ? { type: 'area', min: tb.min, max: tb.max, category: tb.category, items: tb.items.map(it => ({ id: it.id, name: it.name, zhName: it.zhName })) }
+        : { x: tb.x, y: tb.y, z: tb.z, category: tb.category, items: tb.items.map(it => ({ id: it.id, name: it.name, zhName: it.zhName })) }),
       overflowBoxes: this.overflowBoxes,
       overflowBox: this.overflowBox, // 兼容旧前端
       standbyPoint: this.standbyPoint,

@@ -310,7 +310,8 @@ class BotManager {
       z: Math.max(Number(corner1.z), Number(corner2.z))
     };
     try {
-      const boxes = await bot.scanArea(min, max);
+      // 扫描含寻路（走到区域中心加载区块），放入串行队列避免与自动入库并发寻路
+      const boxes = await bot.enqueue(() => bot.scanArea(min, max));
       return { ok: true, min, max, boxes, count: boxes.length };
     } catch (err) {
       return { ok: false, message: `区域扫描失败: ${err.message}` };
@@ -318,18 +319,18 @@ class BotManager {
   }
 
   /**
-   * 向配置添加对角区域 / 单箱条目（source 源箱 / overflow 溢出箱），写盘并热重载。
+   * 向配置添加对角区域 / 单箱条目（source 源箱 / overflow 溢出箱 / target 分类目标箱），写盘并热重载。
    * @param {string} id
-   * @param {'source'|'overflow'} type
-   * @param {object} entry {x,y,z} 或 {min:{x,y,z}, max:{x,y,z}}
+   * @param {'source'|'overflow'|'target'} type
+   * @param {object} entry {x,y,z} 或 {min:{x,y,z}, max:{x,y,z}}；target 类型可带 category
    */
   addBoxArea(id, type, entry) {
     const bot = this.bots.get(id);
     if (!bot || !bot.store) return { ok: false, message: 'bot 的箱子配置未加载' };
-    if (type !== 'source' && type !== 'overflow') {
-      return { ok: false, message: 'type 必须是 source（源箱）或 overflow（溢出箱）' };
+    if (!['source', 'overflow', 'target'].includes(type)) {
+      return { ok: false, message: 'type 必须是 source（源箱）、overflow（溢出箱）或 target（分类目标箱）' };
     }
-    const key = type === 'source' ? 'sourceBoxes' : 'overflowBoxes';
+    const key = type === 'source' ? 'sourceBoxes' : type === 'overflow' ? 'overflowBoxes' : 'targetBoxes';
     const json = JSON.parse(bot.store.rawText || JSON.stringify(bot.store.toJSON(), null, 2));
     if (!Array.isArray(json[key])) json[key] = [];
     const errors = [];
@@ -341,10 +342,15 @@ class BotManager {
       return p && p.key === parsed.key;
     });
     if (dup) return { ok: false, message: `该条目已存在: ${parsed.key}` };
-    json[key].push(entry);
+    // target 类型：保留 category（分类名），items 由用户后台填写
+    const entryToPush = type === 'target'
+      ? { ...entry, category: (entry && entry.category) || '未分类' }
+      : entry;
+    json[key].push(entryToPush);
     const result = this.updateStorageConfig(id, json);
     if (result.ok) {
-      result.message = `已添加${type === 'source' ? '源箱' : '溢出箱'}区域 ${parsed.key}`;
+      const label = type === 'source' ? '源箱' : type === 'overflow' ? '溢出箱' : '分类目标箱';
+      result.message = `已添加${label}${parsed.type === 'area' ? '区域' : ''} ${parsed.key}${type === 'target' ? `（分类：${entryToPush.category}）` : ''}`;
     }
     return result;
   }

@@ -294,7 +294,8 @@ function loadVis(cfg) {
     freeSlotThreshold: cfg.freeSlotThreshold ?? 6,
     standby: cfg.standbyPoint ? { x: cfg.standbyPoint.x, y: cfg.standbyPoint.y, z: cfg.standbyPoint.z } : { x: '', y: '', z: '' },
     sources: split(cfg.sourceBoxes),
-    targets: (cfg.targetBoxes || []).map(t => ({ x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') })),
+    targets: (cfg.targetBoxes || []).filter(t => Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z))
+      .map(t => ({ x: t.x, y: t.y, z: t.z, category: t.category || '', items: t.items.map(i => i.zhName || i.name).join(',') })),
     overflows: split(cfg.overflowBoxes || (cfg.overflowBox ? [cfg.overflowBox] : []))
   };
   $('vis-batch').value = state.vis.batchSize;
@@ -352,6 +353,12 @@ function readAreaCorners() {
 }
 
 function bindAreaOps() {
+  // 区域类型切换：仅"分类箱子区域"显示分类名输入
+  document.querySelectorAll('input[name="area-type"]').forEach(el => {
+    el.addEventListener('change', () => {
+      $('area-category-row').style.display = el.value === 'target' ? 'flex' : 'none';
+    });
+  });
   $('area-scan').onclick = async () => {
     const c = readAreaCorners();
     if (!c) { showAreaResult(false, '请先填写两个对角坐标（x/y/z）'); return; }
@@ -376,9 +383,11 @@ function bindAreaOps() {
         x: Math.max(c.corner1.x, c.corner2.x), y: Math.max(c.corner1.y, c.corner2.y), z: Math.max(c.corner1.z, c.corner2.z)
       }
     };
+    const type = areaType();
+    if (type === 'target') entry.category = ($('area-category').value || '').trim() || '未分类';
     const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/boxes/area`, {
       method: 'POST',
-      body: JSON.stringify({ type: areaType(), entry })
+      body: JSON.stringify({ type, entry })
     });
     showAreaResult(r.ok, r.message);
     if (r.ok) {
@@ -554,7 +563,9 @@ function drawMap(cfg, audit, botId) {
   const points = [];
   const add = (p, type, label) => points.push({ ...p, type, label });
   for (const s of cfg.sourceBoxes || []) add(s, 'source', '源箱');
-  for (const t of cfg.targetBoxes || []) add(t, 'target', t.category || '目标箱');
+  for (const t of cfg.targetBoxes || []) {
+    if (Number.isFinite(t.x) && Number.isFinite(t.y) && Number.isFinite(t.z)) add(t, 'target', t.category || '目标箱');
+  }
   for (const ob of (cfg.overflowBoxes || (cfg.overflowBox ? [cfg.overflowBox] : []))) add(ob, 'overflow', '溢出箱');
   if (!points.length) { $('map-canvas-wrap').innerHTML = '<div class="empty-state">无可绘制坐标</div>'; return; }
 

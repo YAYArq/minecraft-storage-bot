@@ -274,6 +274,11 @@ class StorageBot {
 
   // ================= 箱子区域解析（单箱 / 对角区域）=================
 
+  /** 解析目标分类箱列表（area 展开为区域内所有容器，每个继承区域条目的 category/items） */
+  async resolveTargetBoxes() {
+    return this._resolveBoxes('targets', this.store ? this.store.targetBoxes : [], { withMeta: true });
+  }
+
   /** 解析源投料箱列表（point 直接返回；area 扫描区域内所有容器） */
   async resolveSourceBoxes() {
     return this._resolveBoxes('sources', this.store ? this.store.sourceBoxes : []);
@@ -284,8 +289,8 @@ class StorageBot {
     return this._resolveBoxes('overflows', this.store ? this.store.overflowBoxes : []);
   }
 
-  /** 解析 + 区域扫描（结果缓存 60 秒，区域扫描成本高） */
-  async _resolveBoxes(kind, boxes) {
+  /** 解析 + 区域扫描（结果缓存 60 秒，区域扫描成本高）；withMeta 时附带 category/items */
+  async _resolveBoxes(kind, boxes, opts = {}) {
     if (!boxes || !boxes.length) return [];
     if (this._resolvedBoxes[kind] && Date.now() - this._resolvedBoxes.at < 60000) {
       return this._resolvedBoxes[kind];
@@ -294,9 +299,12 @@ class StorageBot {
     for (const b of boxes) {
       if (b.type === 'area') {
         const found = await this.scanArea(b.min, b.max);
-        list.push(...found);
+        for (const f of found) {
+          list.push(opts.withMeta ? { ...f, category: b.category, items: b.items } : f);
+        }
       } else {
-        list.push({ x: b.x, y: b.y, z: b.z, key: b.key });
+        const entry = { x: b.x, y: b.y, z: b.z, key: b.key };
+        list.push(opts.withMeta ? { ...entry, category: b.category, items: b.items } : entry);
       }
     }
     this._resolvedBoxes[kind] = list;
@@ -304,13 +312,35 @@ class StorageBot {
     return list;
   }
 
-  /** 扫描立方体区域（对角坐标），返回区域内所有容器方块坐标；区域过大则跳过 */
+  /** 匹配该物品所属的目标分类箱列表（area 展开后，同一分类多个箱子） */
+  async matchTargetBoxes(std) {
+    if (!std) return [];
+    const tbs = await this.resolveTargetBoxes();
+    return tbs.filter(tb => tb.items && tb.items.some(it => it.id === std.id || it.name === std.name));
+  }
+
+  /** 扫描立方体区域（对角坐标），返回区域内所有容器方块坐标；区域过大则跳过。
+   * 扫描前先走到区域中心附近，确保区块加载（否则 blockAt 读不到远处容器）。 */
   async scanArea(min, max) {
     const list = [];
     const dx = max.x - min.x + 1, dy = max.y - min.y + 1, dz = max.z - min.z + 1;
     if (dx * dy * dz > 10000) {
       this.logger.warn(`扫描区域过大（${dx}x${dy}x${dz} = ${dx * dy * dz} 格，上限 10000），跳过: ${min.x},${min.y},${min.z} ~ ${max.x},${max.y},${max.z}`);
       return list;
+    }
+    // 先寻路到区域中心附近（加载区块）；失败不阻塞，继续扫描已加载部分
+    if (this.chest && this.bot && this.bot.entity) {
+      try {
+        const mid = {
+          x: Math.floor((min.x + max.x) / 2),
+          y: Math.floor((min.y + max.y) / 2),
+          z: Math.floor((min.z + max.z) / 2)
+        };
+        this.logger.info(`扫描前寻路到区域中心 (${mid.x},${mid.y},${mid.z}) ...`);
+        await this.chest.goto(mid, 6);
+      } catch (err) {
+        this.logger.warn(`扫描前寻路到区域中心失败（可能区块未加载，继续扫描已加载部分）: ${err.message}`);
+      }
     }
     for (let x = min.x; x <= max.x; x++) {
       for (let y = min.y; y <= max.y; y++) {
@@ -513,24 +543,26 @@ class StorageBot {
     const items = this.chest.inventoryItems();
     if (!items.length) return;
 
-    const byTarget = new Map(); // targetKey -> { tb, entries: [{item, std}] }
+    const byTarget = new Map(); // category -> { category, entries: [{item, std}] }
     const overflowEntries = [];
 
     for (const it of items) {
       const std = this.classifier.itemOf(it);
       if (!std) { this.logger.debug(`无法识别物品，跳过: ${it.name || it.type}`); continue; }
-      const tb = this.store.matchTargetBox(std);
-      if (tb) {
-        if (!byTarget.has(tb.key)) byTarget.set(tb.key, { tb, entries: [] });
-        byTarget.get(tb.key).entries.push({ item: it, std });
+      const tbs = await this.matchTargetBoxes(std);
+      if (tbs.length) {
+        // 同一分类多个箱子（含对角区域展开）共享一批物品，deposit 时按箱子轮询
+        const cat = tbs[0].category || tbs[0].key;
+        if (!byTarget.has(cat)) byTarget.set(cat, { category: cat, entries: [] });
+        byTarget.get(cat).entries.push({ item: it, std });
       } else {
         overflowEntries.push({ item: it, std });
       }
     }
 
-    // 逐目标箱：打开一次容器，放入该箱所有分类物品
-    for (const { tb, entries } of byTarget.values()) {
-      await this.depositToTargetBox(tb, entries);
+    // 逐目标分类：打开箱子放入（同一分类多箱子轮询），满的转溢出箱
+    for (const { category, entries } of byTarget.values()) {
+      await this.depositToTargetBox(category, entries);
     }
 
     // 溢出箱
@@ -591,33 +623,45 @@ class StorageBot {
     }
   }
 
-  /** 存入目标箱：满了的物品转溢出箱；单个箱子失败只记录日志（不暂停全局），物品留在背包下次重试 */
-  async depositToTargetBox(tb, entries) {
-    this.logger.info(`入库 -> 目标箱 (${tb.x},${tb.y},${tb.z}) [${tb.category}]`);
-    let window = null;
-    try {
-      window = await this.chest.openContainerAt(tb);
-      const stillOpen = [];
-      for (const { item, std } of entries) {
-        const moved = await this.chest.put(window, std, item.count);
-        if (moved >= item.count) {
-          this.logger.info(`  ${std.zhName} x${moved} 移入目标箱 (${tb.key})`);
-        } else {
-          const remaining = item.count - moved;
-          if (moved > 0) this.logger.info(`  ${std.zhName} x${moved} 移入目标箱，剩余 ${remaining}（箱子已满）`);
-          this.logger.warn(`目标箱 ${tb.key} [${tb.category}] 已满，${std.zhName} x${remaining} 转溢出箱`);
-          stillOpen.push({ item: { ...item, count: remaining }, std });
-        }
-      }
-      if (stillOpen.length) {
-        await this.depositToOverflow(stillOpen);
-      }
-    } catch (err) {
-      // 寻路失败 / 打不开 / 目标箱不存在：记录错误，物品留在背包，不暂停全局
+  /** 存入目标分类：同一分类可多个箱子（含对角区域展开），按顺序轮询直到放完；全满转溢出箱 */
+  async depositToTargetBox(category, entries) {
+    const tbs = (await this.resolveTargetBoxes()).filter(tb => tb.category === category);
+    if (!tbs.length) {
       const names = entries.map(e => `${e.std.zhName} x${e.item.count}`).join('、');
-      this.logger.error(`目标箱 (${tb.key}) [${tb.category}] 处理失败（物品 ${names} 暂留背包）: ${err.message}`);
-    } finally {
-      if (window) this.chest.close(window);
+      this.logger.error(`目标分类 [${category}] 没有可用箱子（物品 ${names} 暂留背包）`);
+      return;
+    }
+    this.logger.info(`入库 -> 目标分类 [${category}]（${tbs.length} 个箱子）`);
+    let remaining = entries;
+    for (const tb of tbs) {
+      if (!remaining.length) break;
+      let window = null;
+      try {
+        window = await this.chest.openContainerAt(tb);
+        const still = [];
+        for (const { item, std } of remaining) {
+          const moved = await this.chest.put(window, std, item.count);
+          if (moved > 0) {
+            this.logger.info(`  ${std.zhName} x${moved} 移入目标箱 (${tb.key}) [${tb.category}]`);
+          }
+          if (moved < item.count) {
+            const left = item.count - moved;
+            this.logger.warn(`目标箱 ${tb.key} [${tb.category}] 已满，${std.zhName} x${left} 尝试下一个`);
+            still.push({ item: { ...item, count: left }, std });
+          }
+        }
+        remaining = still;
+      } catch (err) {
+        // 寻路失败 / 打不开：记录错误，物品尝试下一个箱子
+        this.logger.error(`目标箱 (${tb.key}) [${category}] 打开失败: ${err.message}`);
+      } finally {
+        if (window) this.chest.close(window);
+      }
+    }
+    if (remaining.length) {
+      const names = remaining.map(r => `${r.std.zhName} x${r.item.count}`).join('、');
+      this.logger.warn(`目标分类 [${category}] 全部箱子已满/失败，${names} 转溢出箱`);
+      await this.depositToOverflow(remaining);
     }
   }
 
@@ -889,7 +933,7 @@ class StorageBot {
     const ovfBoxes = await this.resolveOverflowBoxes();
     const scanList = [
       ...srcBoxes.map(sb => ({ ...sb, category: '源箱' })),
-      ...this.store.targetBoxes.map(tb => ({ ...tb, category: `目标箱·${tb.category}` })),
+      ...(await this.resolveTargetBoxes()).map(tb => ({ ...tb, category: `目标箱·${tb.category}` })),
       ...ovfBoxes.map(ob => ({ ...ob, category: '溢出箱' }))
     ];
     const result = { botId: this.id, startedAt: Date.now(), finishedAt: null, boxes: [], summary: null };

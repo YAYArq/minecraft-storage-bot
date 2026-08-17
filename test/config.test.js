@@ -94,3 +94,26 @@ test('重载失败时保留上一次成功配置', () => {
   // 旧配置仍可用
   assert.strictEqual(store.matchTargetBox(classifier.resolveRef('钻石')).key, '120,64,200');
 });
+
+test('目标分类箱支持对角区域（area），items 允许为空（后台填写）', () => {
+  const json = {
+    ...VALID,
+    targetBoxes: [
+      { type: 'area', min: { x: 140, y: 64, z: 210 }, max: { x: 142, y: 66, z: 212 }, category: '测试分类' },
+      { x: 121, y: 64, z: 200, category: '铁锭', items: ['iron_ingot'] }
+    ]
+  };
+  const store = new ConfigStore(tmpConfig(json), classifier);
+  const parsed = store.load();
+  assert.strictEqual(parsed.targetBoxes.length, 2);
+  const area = parsed.targetBoxes.find(t => t.type === 'area');
+  assert.ok(area, 'area 条目应保留 type=area');
+  assert.strictEqual(area.category, '测试分类');
+  assert.deepStrictEqual(area.min, { x: 140, y: 64, z: 210 });
+  assert.deepStrictEqual(area.max, { x: 142, y: 66, z: 212 });
+  assert.ok(Array.isArray(area.items) && area.items.length === 0, 'area items 允许为空');
+  // point 条目不受影响
+  const point = parsed.targetBoxes.find(t => t.key === '121,64,200');
+  assert.strictEqual(point.category, '铁锭');
+  assert.strictEqual(point.items[0].name, 'iron_ingot');
+});
