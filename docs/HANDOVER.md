@@ -36,12 +36,12 @@ Minecraft 仓库分类 Bot：Node.js + mineflayer 实现的自动仓库整理机
 
 ## 4. 未解决问题（重要，接手先看）
 
-### 4.1 新服务器开箱失败（阻塞中）
-- **现象**：`<服务器域名:端口>`（26.1/协议 775，与 mineflayer-x 数据一致）上，bot 已寻路站到箱子相邻格（距离 0.6~1.6、共享面），但 `openContainer` 全部 `打开容器超时(5s)`——**所有箱子都点不开**。
-- **已排除**：协议版本（ping 确认 26.1/775）；寻路（pathfinder 正常到达）；位置（微调/共享面已确认）。
-- **结论**：疑似服务器端插件（锁箱 LWC/Lockette、反作弊、容器权限）拦截 bot 交互。之前 `<旧服务器域名>`（同 26.1）能正常开箱。
-- **需要用户**：确认服务器插件、给 bot 开箱权限、提供服务器控制台日志。
-- **注意**：`openContainerAt` 的 5 秒超时是刻意加的（快速失败，避免 20s 干等）。
+### 4.1 新服务器开箱失败（已解决 ✅）
+- ~~现象：开箱全部超时~~ → **根因是客户端并发 bug + 寻路目标半径过苛**，已修复（2026-08）：
+  - 定时源箱检查与自动入库并发寻路互相打断（goal was changed）→ checkSourceBoxes 入串行队列
+  - GoalNear(1) 太小、悬空箱够不到 → 三级兜底（1.5 → GoalXZ 正下方 → 3.5）+ 跳起开箱
+  - 距离判定改"眼睛到箱子包围盒 ≤2.9"（与服务器 reach 3 一致）
+- 注意：`openContainerAt` 的 5 秒超时保留（快速失败）。
 
 ### 4.2 26.1 碰撞形状修补
 - 26.1 的 `blocks.json` **没有 `shapes` 字段**（1.21.11 也没有），mineflayer-pathfinder 的 `Movements` 构造会读 `block.shapes[0]` 崩溃。
@@ -123,7 +123,40 @@ node --check src/**/*.js   # 语法检查
 
 ## 10. 上线清单（下次发布前核对）
 
-- [ ] 修复 4.1 开箱问题（服务器端，需用户配合）
+- [x] 修复 4.1 开箱问题（客户端并发 + 寻路，已修复部署）
+- [x] GitHub 仓库初始化 + 首次推送（已清敏 + .gitignore 加固）
+- [x] 面板 10260 公网访问（宝塔放行/反代）
 - [ ] 确认 26.2 支持（若需要）
-- [ ] GitHub 仓库初始化 + 首次推送
-- [ ] 面板 10260 公网访问（宝塔放行/反代）
+
+## 11. 2026-08 后新增功能（接手先看）
+
+- **开箱/寻路重构**：三级兜底（GoalNear 1.5 → GoalXZ 正下方 → GoalNear 3.5）+ 跳起开箱 + 眼睛到包围盒距离判定；`allowParkour=true`（用户授权跳跃）；串行队列（定时源箱检查/扫描入队）
+- **整理仓库**：`tidy`/`tidyall` 命令 + 面板「整理仓库」按钮 + 自动巡查（`tidyInterval` 默认 600s，**全局暂停时也执行**）；目标箱错放物品归位 + 溢出箱可分类物品归位
+- **取货**：『取货』面板（从盘点结果多选物品+数量+收货玩家）；`pickup` 配置段（取货箱坐标/送达 box|tpa|tp/返回 home|tp）；`POST /api/bots/:id/pickup`；bot 取货→放取货箱或 tpa/tp 丢货→home/tp 返回
+- **盘点持久化**：盘点结果写 `config/audit.json`，重启/刷新仍显示
+- **仓库地图**：真实 MC 贴图等距渲染（chest/barrel/shulker…）、滚轮缩放/拖拽/双击还原、Y 层选择、竖叠并排
+- **对角区域**：分类目标箱区域添加时**逐箱展开**为独立目标箱（每箱独立绑定物品）；坐标未填满/退化按钮禁用；扫描前 bot 先寻路加载区块
+- **物品识别**：配置页『识别』按钮——粘贴 `/setblock` 或 `/summon item_frame` 指令自动提取物品 id + 分类名自动填中文（`POST /api/bots/:id/items/resolve`）
+- **中文名全覆盖**：内置词典 + 官方 zh_cn（`src/data/zh_cn_items.json`，1473 条）+ 用户 zhNameMap
+- **安全**：git 历史清敏（filter-branch + force push）、`.gitignore` 加固、静态资源 no-cache
+
+## 12. 交接提示词（复制给下一个 AI / 开发者）
+
+```
+接手 Minecraft 仓库分类 Bot（Node.js + mineflayer，中文 Web 面板，MCSM 部署）。
+先读 docs/HANDOVER.md 全文，再动代码。
+
+要点：
+- src/vendor/mineflayer-x/ 千万别删（26.1 协议支持，npm 无此包；含碰撞形状/time shim/区块修补）
+- 先 require('mineflayer-x') 再 createBot；数据用 require('minecraft-data')('26.1')
+- 自动入库/重分类/盘点/整理/取货全走串行队列（bot.enqueue），禁止并发开箱/寻路（goal was changed）
+- 开箱三级兜底（GoalNear 1.5 → GoalXZ 正下方 → 3.5）+ 跳起开箱；距离=眼睛到包围盒 ≤2.9
+- 寻路：直线不斜线、canDig=false、placeCost=100（不挖不搭）、allowParkour=true（跳跃，用户授权）
+- 全局暂停不阻止自动巡查整理；面板恢复按钮可解除暂停
+- 配置 normalize 为 minecraft:name；中文名=内置词典+官方 zh_cn+zhNameMap
+- 盘点结果持久化 config/audit.json；取货用 pickup 配置段（box/tpa/tp 送达、home/tp 返回）
+- 面板 10260 无鉴权公网可达（建议加访问控制）；GitHub 公开仓库严禁提交密码/密钥/IP
+- 测试 npm test（27 个）；部署=上传文件到 MCSM 实例目录 + docker exec pkill 重启
+
+服务器凭据向用户索取（仓库已打码）。已知问题：(63,77,80) 红石装置区箱子 bot 够不到。
+```
