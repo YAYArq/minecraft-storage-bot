@@ -411,21 +411,36 @@ function bindAreaOps() {
 }
 
 /**
- * 从 /setblock 指令（MC F3+I 复制）中提取物品 id：
- *   /setblock 65 72 86 minecraft:chest[facing=south,type=left]{Items:[]} -> minecraft:chest
- * 去掉坐标、方块属性 [..] 与 NBT {..}，多个指令/多行合并去重。
+ * 从 MC 指令（F3+I 复制）中提取物品 id：
+ *   /setblock 65 72 86 minecraft:chest[facing=south]{Items:[]}        -> minecraft:chest
+ *   /summon minecraft:item_frame ... {Item: {id:"minecraft:iron_ingot"}} -> minecraft:iron_ingot（取展示框上的物品，忽略实体本身）
+ * 去掉坐标、方块属性 [..] 与 NBT {..}；/summon 指令优先取 Item NBT 里的物品 id（展示框/盔甲架等实体上的物品）。
+ * 多条指令/多行合并去重。
  * @param {string} text
  * @returns {string[]}
  */
 function extractSetblockIds(text) {
   const ids = [];
   if (!text) return ids;
-  // 匹配 <命名空间>:<id>（如 minecraft:chest），NBT 里的 {id:"minecraft:xxx"} 也会被捕获（同为物品 id）
-  const re = /[a-z0-9_]+:[a-z0-9_]+/g;
-  let m;
-  while ((m = re.exec(text)) !== null) {
-    const id = m[0];
-    if (!ids.includes(id)) ids.push(id);
+  const lines = String(text).split(/\n|;/);
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    let found = [];
+    if (/^\s*\/summon\b/.test(line)) {
+      // summon 指令：优先取 Item NBT 里的物品 id（展示框/盔甲架上的物品）
+      const itemId = line.match(/Item\s*:\s*\{[^}]*id\s*:\s*"([a-z0-9_]+:[a-z0-9_]+)"/);
+      if (itemId) {
+        found = [itemId[1]];
+      } else {
+        found = [...line.matchAll(/[a-z0-9_]+:[a-z0-9_]+/g)].map(m => m[0]); // 无 Item NBT 时回退全匹配
+      }
+    } else {
+      found = [...line.matchAll(/[a-z0-9_]+:[a-z0-9_]+/g)].map(m => m[0]);
+    }
+    for (const id of found) {
+      if (!ids.includes(id)) ids.push(id);
+    }
   }
   return ids;
 }
