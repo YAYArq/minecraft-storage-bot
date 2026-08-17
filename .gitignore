@@ -1,3 +1,16 @@
 node_modules/
 *.log
 .DS_Store
+
+# 凭据与密钥（防止误提交）
+.env
+.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.p8
+id_rsa
+id_ed25519
+credentials*
+secrets.*
