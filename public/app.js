@@ -111,7 +111,7 @@ function switchView(view) {
   for (const btn of document.querySelectorAll('.main-tab')) {
     btn.classList.toggle('active', btn.dataset.view === view);
   }
-  for (const id of ['sec-instances', 'sec-map', 'sec-tasks', 'sec-inventory', 'sec-chat', 'sec-configs', 'sec-settings', 'sec-logs', 'sec-detail']) {
+  for (const id of ['sec-instances', 'sec-map', 'sec-tasks', 'sec-inventory', 'sec-chat', 'sec-configs', 'sec-settings', 'sec-pickup', 'sec-logs', 'sec-detail']) {
     const el = $(id);
     if (!el) continue;
     const isViewSec = id === 'sec-' + view;
