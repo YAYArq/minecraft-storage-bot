@@ -50,3 +50,18 @@ test('中文名回退与 itemOf 转换', () => {
   assert.strictEqual(slot.zhName, '面包');
   assert.strictEqual(slot.name, 'bread');
 });
+
+test('中文名词典覆盖木材/活板门/菌核/装备（盘点与日志展示用中文名）', () => {
+  assert.strictEqual(classifier.nameToZh('spruce_planks'), '云杉木板');
+  assert.strictEqual(classifier.nameToZh('birch_planks'), '白桦木板');
+  assert.strictEqual(classifier.nameToZh('oak_trapdoor'), '橡木活板门');
+  assert.strictEqual(classifier.nameToZh('warped_hyphae'), '诡异菌核');
+  assert.strictEqual(classifier.nameToZh('stripped_birch_log'), '去皮白桦原木');
+  assert.strictEqual(classifier.nameToZh('birch_slab'), '白桦台阶');
+  assert.strictEqual(classifier.nameToZh('diorite_slab'), '闪长岩台阶');
+  assert.strictEqual(classifier.nameToZh('golden_chestplate'), '金胸甲');
+  // 反向：配置里写中文也能解析成物品（展示用中文、配置仍可中文输入，保存时 normalize 为 minecraft:name）
+  const birch = classifier.resolveRef('白桦木板');
+  assert.strictEqual(birch.name, 'birch_planks');
+  assert.strictEqual(birch.zhName, '白桦木板');
+});
