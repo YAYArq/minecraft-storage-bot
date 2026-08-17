@@ -459,9 +459,9 @@ function renderVis() {
   document.querySelectorAll('.vis-input').forEach(inp => {
     inp.oninput = () => syncVisRow();
   });
-  // 「识别」按钮：从 /setblock 指令（F3+I 复制）中提取物品 id，去掉坐标/属性/NBT
+  // 「识别」按钮：从 /setblock 指令（F3+I 复制）中提取物品 id，去掉坐标/属性/NBT，分类名自动改为中文
   document.querySelectorAll('.vis-setblock').forEach(btn => {
-    btn.onclick = () => {
+    btn.onclick = async () => {
       const i = Number(btn.dataset.i);
       const inp = document.querySelector(`.vis-items[data-i="${i}"]`);
       if (!inp) return;
@@ -473,7 +473,21 @@ function renderVis() {
       }
       inp.value = ids.join(',');
       syncVisRow();
-      showAreaResult(true, `已识别 ${ids.length} 个物品: ${ids.join(', ')}`);
+      // 解析第一个物品 id -> 中文名，自动填入分类名输入框
+      let zh = null;
+      try {
+        const r = await api(`/api/bots/${encodeURIComponent((curBot() ? curBot().id : ''))}/items/resolve`, {
+          method: 'POST',
+          body: JSON.stringify({ refs: ids })
+        });
+        const hit = r.results && r.results.find(x => x.zhName);
+        if (hit) zh = hit.zhName;
+      } catch (e) { /* 解析失败不阻塞 */ }
+      if (zh) {
+        const cat = document.querySelector(`.vis-cat[data-i="${i}"]`);
+        if (cat) { cat.value = zh; syncVisRow(); }
+      }
+      showAreaResult(true, `已识别 ${ids.length} 个物品${zh ? `，分类名已设为「${zh}」` : ''}`);
     };
   });
   document.querySelectorAll('.vis-del').forEach(btn => {

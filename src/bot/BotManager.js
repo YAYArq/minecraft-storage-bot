@@ -87,6 +87,17 @@ class BotManager {
     return this.bots.get(id) || null;
   }
 
+  /** 解析物品引用列表 -> 标准物品信息（含中文名），供前端「识别 setblock」自动填分类名 */
+  resolveItemRefs(id, refs) {
+    const bot = this.bots.get(id);
+    if (!bot || !bot.classifier) return { ok: false, message: 'bot 分类器未加载' };
+    const results = (Array.isArray(refs) ? refs : []).map(ref => {
+      const item = bot.classifier.resolveRef(ref);
+      return item ? { ref, name: item.name, zhName: item.zhName } : { ref, name: null, zhName: null };
+    });
+    return { ok: true, results };
+  }
+
   /** 单 bot 的箱子配置展示数据 */
   getBotConfigView(id) {
     const bot = this.bots.get(id);

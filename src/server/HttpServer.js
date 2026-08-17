@@ -173,6 +173,13 @@ class HttpServer {
           );
         });
       }
+      if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'items' && parts[3] === 'resolve' && req.method === 'POST') {
+        // POST /api/bots/:id/items/resolve —— 解析物品引用（id/中文名/minecraft:name -> 中文名），识别 setblock 自动填分类名用
+        return this.readBody(req).then(body => {
+          const result = this.manager.resolveItemRefs(parts[1], body.refs);
+          return this.json(res, result.ok ? 200 : 400, result);
+        });
+      }
       if (parts.length === 4 && parts[0] === 'bots' && parts[2] === 'boxes' && parts[3] === 'delete' && req.method === 'POST') {
         // POST /api/bots/:id/boxes/delete —— 删除某个箱子/区域条目
         return this.readBody(req).then(body => {
