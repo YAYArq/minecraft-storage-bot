@@ -164,4 +164,8 @@ test('pickup 取货配置解析（取货箱/送达/返回）', () => {
   const store2 = new ConfigStore(tmpConfig({ ...VALID, pickup: { deliverMode: 'xxx' } }), classifier);
   store2.load();
   assert.strictEqual(store2.pickup.deliverMode, 'box');
+  // walk 返回方式（走回去）合法
+  const store3 = new ConfigStore(tmpConfig({ ...VALID, pickup: { returnMode: 'walk' } }), classifier);
+  store3.load();
+  assert.strictEqual(store3.pickup.returnMode, 'walk');
 });

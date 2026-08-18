@@ -38,6 +38,29 @@ const fmtDate = (ts) => {
 };
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 
+/* ================= 物品贴图（MCID 贴图库 public/img/，索引 public/img-index.json） ================= */
+const imgIndex = new Set();
+async function loadImgIndex() {
+  try {
+    const r = await fetch('/img-index.json');
+    const list = await r.json();
+    for (const f of list) imgIndex.add(f);
+  } catch (e) { /* 索引缺失时图标不显示，不影响文字布局 */ }
+}
+/** 物品名（minecraft:xxx 或 xxx）→ 贴图 URL；无贴图返回 null（方块用 name.png，纯物品用 name_i.png 兜底） */
+function itemImg(name) {
+  const base = String(name || '').replace(/^minecraft:/, '');
+  if (!base) return null;
+  if (imgIndex.has(base + '.png')) return '/img/' + base + '.png';
+  if (imgIndex.has(base + '_i.png')) return '/img/' + base + '_i.png';
+  return null;
+}
+/** 物品图标 <img>（无贴图返回空串，保持文字布局） */
+function itemIcon(name, size = 16) {
+  const src = itemImg(name);
+  return src ? `<img class="item-icon" src="${src}" width="${size}" height="${size}" alt="" loading="lazy">` : '';
+}
+
 /* ================= WebSocket ================= */
 function connectWs() {
   state.ws = new WebSocket(wsUrl());
@@ -293,6 +316,7 @@ function loadVis(cfg) {
   state.vis = {
     batchSize: cfg.batchSize ?? 64,
     freeSlotThreshold: cfg.freeSlotThreshold ?? 6,
+    openReach: cfg.openReach ?? 2.9,
     standby: cfg.standbyPoint ? { x: cfg.standbyPoint.x, y: cfg.standbyPoint.y, z: cfg.standbyPoint.z } : { x: '', y: '', z: '' },
     sources: split(cfg.sourceBoxes),
     targets: (cfg.targetBoxes || []).map(t => t.type === 'area'
@@ -304,6 +328,7 @@ function loadVis(cfg) {
   };
   $('vis-batch').value = state.vis.batchSize;
   $('vis-free').value = state.vis.freeSlotThreshold;
+  $('vis-reach').value = state.vis.openReach;
   $('vis-spx').value = state.vis.standby.x;
   $('vis-spy').value = state.vis.standby.y;
   $('vis-spz').value = state.vis.standby.z;
@@ -574,6 +599,7 @@ function collectVis() {
   return {
     batchSize: Number($('vis-batch').value) || 64,
     freeSlotThreshold: Number($('vis-free').value) || 6,
+    openReach: Number($('vis-reach').value) || 2.9,
     standbyPoint: spx ? { x: num(state.vis.standby.x), y: num(state.vis.standby.y), z: num(state.vis.standby.z) } : null,
     sourceBoxes: [
       ...state.vis.sources.pts.map(v => ({ x: num(v.x), y: num(v.y), z: num(v.z) })).filter(v => v.x || v.y || v.z),
@@ -710,50 +736,26 @@ function drawMap(cfg, audit, botId) {
     if (name.includes('trapped_chest')) return '陷阱箱';
     return '箱子';
   };
-  // 等距立方体贴图拼贴：把贴图源矩形 (sx,sy,sw,sh) 仿射映射到目标四边形 (p0,p1,p2,p3)
-  // 注意：transform 作用于 <image> 元素整体（含 x/y 定位），矩阵须计入源区域偏移 (sx,sy)
-  const face = (href, sx, sy, sw, sh, p0, p1, p2, p3) => {
-    const a = (p1.x - p0.x) / sw, c = (p2.x - p0.x) / sh;
-    const b = (p1.y - p0.y) / sw, d = (p2.y - p0.y) / sh;
-    const e = p0.x - a * sx - c * sy;
-    const f = p0.y - b * sx - d * sy;
-    return `<image href="/textures/${href}" x="${sx}" y="${sy}" width="${sw}" height="${sh}" transform="matrix(${a} ${b} ${c} ${d} ${e} ${f})" preserveAspectRatio="none"/>`;
-  };
-  // 等距方块（顶面 + 右面 + 左面），按容器类型用真实 MC 贴图或配色兜底
+  // 仓库地图容器方块：全部使用 MCID 等距 3D 渲染图（public/img/）。
+  // 按盘点记录的方块类型匹配贴图；未知/未盘点时兜底 chest.png，不再使用旧 textures/ 拼贴。
+  const ISO_TEX = [
+    ['shulker', 'shulker_box.png'],
+    ['barrel', 'barrel.png'],
+    ['hopper', 'hopper.png'],
+    ['dispenser', 'dispenser.png'],
+    ['dropper', 'dropper.png'],
+    ['trapped_chest', 'trapped_chest.png'],
+    ['ender_chest', 'ender_chest.png'],
+    ['copper_chest', 'copper_chest.png'],
+    ['chest', 'chest.png']
+  ];
   const texBox = (cx, cy, w, blk) => {
     const h = w * 0.55;
-    const P = {
-      top: [{ x: cx - w, y: cy - h / 2 }, { x: cx, y: cy - h }, { x: cx + w, y: cy - h / 2 }, { x: cx, y: cy }],
-      right: [{ x: cx, y: cy }, { x: cx + w, y: cy - h / 2 }, { x: cx, y: cy + h }, { x: cx + w, y: cy + h / 2 }],
-      left: [{ x: cx - w, y: cy - h / 2 }, { x: cx, y: cy }, { x: cx - w, y: cy + h / 2 }, { x: cx, y: cy + h }]
-    };
-    if (blk && blk.includes('barrel')) {
-      return face('barrel_top.png', 0, 0, 16, 16, ...P.top) +
-        face('barrel_side.png', 0, 0, 16, 16, ...P.right) +
-        face('barrel_side.png', 0, 0, 16, 16, ...P.left);
-    }
-    if (blk && blk.includes('shulker')) {
-      // 16x16 顶面贴图 + 紫色侧面
-      const colors = ['#9c62c9', '#b98ae0', '#7a47a3'];
-      return face('shulker_box.png', 0, 0, 16, 16, ...P.top) +
-        `<path d="M ${P.right[0].x} ${P.right[0].y} L ${P.right[1].x} ${P.right[1].y} L ${P.right[3].x} ${P.right[3].y} L ${P.right[2].x} ${P.right[2].y} Z" fill="${colors[0]}"/>` +
-        `<path d="M ${P.left[0].x} ${P.left[0].y} L ${P.left[1].x} ${P.left[1].y} L ${P.left[3].x} ${P.left[3].y} L ${P.left[2].x} ${P.left[2].y} Z" fill="${colors[2]}"/>`;
-    }
-    if (blk && (blk.includes('hopper') || blk.includes('dispenser') || blk.includes('dropper'))) {
-      // 漏斗/发射器/投掷器：顶面用贴图，侧面配色兜底
-      const colors = blk.includes('hopper') ? ['#8a8a8a', '#a9a9a9', '#6b6b6b']
-        : blk.includes('dispenser') ? ['#9b9b9b', '#bcbcbc', '#7a7a7a'] : ['#767676', '#929292', '#5a5a5a'];
-      const tex = blk.includes('hopper') ? 'hopper_top.png'
-        : blk.includes('dispenser') ? 'dispenser_front.png' : 'dropper_front.png';
-      return face(tex, 0, 0, 16, 16, ...P.top) +
-        `<path d="M ${P.right[0].x} ${P.right[0].y} L ${P.right[1].x} ${P.right[1].y} L ${P.right[3].x} ${P.right[3].y} L ${P.right[2].x} ${P.right[2].y} Z" fill="${colors[0]}"/>` +
-        `<path d="M ${P.left[0].x} ${P.left[0].y} L ${P.left[1].x} ${P.left[1].y} L ${P.left[3].x} ${P.left[3].y} L ${P.left[2].x} ${P.left[2].y} Z" fill="${colors[2]}"/>`;
-    }
-    // 箱子 / 陷阱箱 / 默认：chest 实体贴图（top/left/front）
-    const tex = blk && blk.includes('trapped_chest') ? 'chest.png' : 'chest.png';
-    return face(tex, 14, 0, 16, 16, ...P.top) +
-      face(tex, 14, 28, 14, 16, ...P.right) +
-      face(tex, 28, 14, 14, 16, ...P.left);
+    // MCID 等距整图：底面与方块视觉底面 (cy+h) 对齐，宽高按视觉宽 2w 等比
+    const name = String(blk || '');
+    const isoHit = ISO_TEX.find(([kw]) => name.includes(kw));
+    const tex = (isoHit && imgIndex.has(isoHit[1])) ? isoHit[1] : 'chest.png';
+    return `<image href="/img/${tex}" x="${cx - w}" y="${cy + h - 2 * w}" width="${2 * w}" height="${2 * w}" preserveAspectRatio="xMidYMid meet"/>`;
   };
   const auditByKey = {};
   if (audit) for (const bx of audit.boxes || []) auditByKey[bx.key] = bx;
@@ -874,8 +876,22 @@ function showPickupResult(ok, msg) {
   el.style.color = ok ? '#22c55e' : '#ef4444';
 }
 
+function filterPickupItems() {
+  const query = $('pk-search').value.trim().toLowerCase();
+  const rows = [...$('pk-items').querySelectorAll('.pk-item-row')];
+  let visible = 0;
+  for (const row of rows) {
+    const matched = !query || row.dataset.search.includes(query);
+    row.classList.toggle('hidden', !matched);
+    if (matched) visible += 1;
+  }
+  $('pk-search-count').textContent = rows.length ? `显示 ${visible} / ${rows.length} 种` : '';
+}
+
 async function loadPickup() {
   const id = $('pickup-bot').value || (state.bots[0] && state.bots[0].id);
+  $('pk-search').value = '';
+  $('pk-search-count').textContent = '';
   if (!id) { $('pk-items').innerHTML = '<div class="empty-state">无实例</div>'; return; }
   // 加载取货配置
   try {
@@ -896,15 +912,20 @@ async function loadPickup() {
       $('pk-items').innerHTML = '<div class="panel-hint">暂无盘点数据，请先到「库存盘点」页执行盘点（取货物品只能从盘点结果中选择）</div>';
       return;
     }
-    $('pk-items').innerHTML = a.summary.items.map((it, i) => `
-      <div class="vis-row">
+    $('pk-items').innerHTML = a.summary.items.map((it, i) => {
+      const zhName = it.zhName || it.name;
+      const itemId = 'minecraft:' + it.name;
+      return `
+      <div class="vis-row pk-item-row" data-search="${esc(`${zhName} ${it.name} ${itemId}`.toLowerCase())}">
         <label class="radio-label" style="display:flex;align-items:center;gap:8px;flex:1">
-          <input type="checkbox" class="pk-check" data-i="${i}" checked>
-          <span>${esc(it.zhName || it.name)}（库存 ${it.count}）</span>
+          <input type="checkbox" class="pk-check" data-i="${i}">
+          ${itemIcon(it.name, 20)}<span>${esc(zhName)}（库存 ${it.count}）</span>
         </label>
         <input type="number" class="input mono-input pk-count" data-i="${i}" value="64" min="1" max="${it.count}" style="width:90px">
-        <input type="hidden" class="pk-name" data-i="${i}" value="${esc('minecraft:' + it.name)}">
-      </div>`).join('');
+        <input type="hidden" class="pk-name" data-i="${i}" value="${esc(itemId)}">
+      </div>`;
+    }).join('');
+    filterPickupItems();
   } catch (e) {
     $('pk-items').innerHTML = '<div class="empty-state">加载盘点失败</div>';
   }
@@ -913,6 +934,7 @@ async function loadPickup() {
 function bindPickup() {
   $('pickup-bot').onchange = () => loadPickup();
   $('pickup-refresh').onclick = () => loadPickup();
+  $('pk-search').oninput = () => filterPickupItems();
   $('pk-savecfg').onclick = async () => {
     const id = $('pickup-bot').value;
     if (!id) { showPickupResult(false, '未选择实例'); return; }
@@ -968,13 +990,13 @@ function renderAudit() {
     const more = a.summary.items.length - top.length;
     html += `<div class="panel-box" style="margin-bottom:12px;border-color:#57364f">
       <div class="panel-title">全部箱子总和：${a.summary.totalCount} 件 / ${a.summary.totalKinds} 种</div>
-      <div>${top.map(i => `<span class="badge task" style="margin:2px">${esc(i.zhName || i.name)} x${i.count}</span>`).join('')}${more > 0 ? `<span class="muted"> …共 ${more} 种未显示</span>` : ''}</div>
+      <div>${top.map(i => `<span class="badge task" style="margin:2px">${itemIcon(i.name)}${esc(i.zhName || i.name)} x${i.count}</span>`).join('')}${more > 0 ? `<span class="muted"> …共 ${more} 种未显示</span>` : ''}</div>
     </div>`;
   }
   // 每个箱子汇总
   for (const box of a.boxes) {
     const items = box.items && box.items.length
-      ? box.items.map(i => `<span class="badge idle" style="margin:2px">${esc(i.zhName || i.name)} x${i.count}</span>`).join('')
+      ? box.items.map(i => `<span class="badge idle" style="margin:2px">${itemIcon(i.name)}${esc(i.zhName || i.name)} x${i.count}</span>`).join('')
       : (box.error ? `<span class="badge paused">${esc(box.error)}</span>` : '<span class="badge idle">空</span>');
     html += `<div class="panel-box" style="margin-bottom:10px">
       <div class="panel-title">${esc(box.category)} · (${box.x}, ${box.y}, ${box.z}) · <span class="accent">${box.totalCount} 件 / ${box.totalKinds} 种</span></div>
@@ -1302,5 +1324,6 @@ function bindEvents() {
 }
 
 /* ================= 启动 ================= */
+loadImgIndex();
 bindEvents();
 connectWs();

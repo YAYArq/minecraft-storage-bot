@@ -56,10 +56,19 @@ class ChestService {
   /**
    * @param {import('mineflayer').Bot} bot
    * @param {import('./BotLogger').BotLogger} logger
+   * @param {object} [store] ConfigStore 实例（开箱距离上限来自该 bot 的 storage_box.json → openReach）
    */
-  constructor(bot, logger) {
+  constructor(bot, logger, store) {
     this.bot = bot;
     this.logger = logger;
+    this.store = store || null;
+  }
+
+  /** 开箱距离上限（眼睛到箱子包围盒，格）：读该 bot 的 storage_box.json openReach，默认 2.9（服务器 reach 3 留 0.1 余量） */
+  getOpenReach() {
+    const v = this.store && typeof this.store.openReach === 'number' ? this.store.openReach : null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : 2.9;
   }
 
   // ---------------- 寻路 ----------------
@@ -174,8 +183,9 @@ class ChestService {
       return Math.sqrt(dx * dx + dy * dy + dz * dz);
     };
     let jumped = false;
+    const openReach = this.getOpenReach();
     let reachDist = reachOf();
-    if (reachDist > 2.9) {
+    if (reachDist > openReach) {
       // 允许跳起来开箱（用户授权）：原地跳起使眼睛升高，够到高处/悬空箱子，不必跳到方块上。
       // 不依赖 onGround 判断：刚寻路到达时可能尚未落地/站在台阶上状态未刷新（曾致 3.1 格差一点不触发）
       this.bot.setControlState('jump', true);
@@ -183,10 +193,10 @@ class ChestService {
       jumped = true;
       reachDist = reachOf(); // 用跳起后的真实位置重算
     }
-    if (reachDist > 2.9) { // 服务器 3.0，留 0.1 余量
+    if (reachDist > openReach) { // 服务器默认 3.0，留 0.1 余量；可在面板「系统设置 → 行为参数」调整
       if (jumped) this.bot.setControlState('jump', false);
       throw Object.assign(
-        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) 眼睛 ${reachDist.toFixed(1)} 格${jumped ? '（跳起后仍）' : ''}，超出服务器交互距离（reach 3 格），拒绝开箱`),
+        new Error(`距箱子 (${pos.x},${pos.y},${pos.z}) 眼睛 ${reachDist.toFixed(1)} 格${jumped ? '（跳起后仍）' : ''}，超出开箱距离上限（${openReach} 格，服务器 reach 3），拒绝开箱`),
         { code: 'TOO_FAR', pos }
       );
     }

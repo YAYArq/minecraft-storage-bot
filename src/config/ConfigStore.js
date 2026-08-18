@@ -263,6 +263,9 @@ class ConfigStore {
     // ---- 任务参数 ----
     const batchSize = Number.isInteger(json.batchSize) && json.batchSize > 0 ? json.batchSize : 64;
     const freeSlotThreshold = Number.isInteger(json.freeSlotThreshold) && json.freeSlotThreshold > 0 ? json.freeSlotThreshold : 6;
+    // 开箱距离上限（眼睛到箱子包围盒，格）：服务器原版 reach 3，默认 2.9；允许按实例/服务器插件调整，范围 1~8
+    const openReachRaw = Number(json.openReach);
+    const openReach = Number.isFinite(openReachRaw) && openReachRaw > 0 ? Math.min(8, Math.max(1, openReachRaw)) : 2.9;
     // 定时翻看源投料箱间隔（秒，0 = 关闭；默认 120 秒）
     const sourceCheckInterval = Number.isFinite(Number(json.sourceCheckInterval)) && Number(json.sourceCheckInterval) >= 0
       ? Number(json.sourceCheckInterval)
@@ -279,7 +282,7 @@ class ConfigStore {
     const pickup = {
       box: pickupBox,
       deliverMode: ['box', 'tpa', 'tp'].includes(pickupRaw.deliverMode) ? pickupRaw.deliverMode : 'box',
-      returnMode: ['home', 'tp'].includes(pickupRaw.returnMode) ? pickupRaw.returnMode : 'home',
+      returnMode: ['home', 'walk', 'tp'].includes(pickupRaw.returnMode) ? pickupRaw.returnMode : 'home',
       returnHomeCmd: typeof pickupRaw.returnHomeCmd === 'string' && pickupRaw.returnHomeCmd ? pickupRaw.returnHomeCmd : '/home'
     };
 
@@ -297,7 +300,7 @@ class ConfigStore {
     }
 
     this.loadWarnings = warnings;
-    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval, tidyInterval, pickup };
+    return { targetBoxes, sourceBoxes, overflowBoxes, standbyPoint, batchSize, freeSlotThreshold, sourceCheckInterval, tidyInterval, pickup, openReach };
   }
 
   // ---------- 保存前规范化 ----------
@@ -363,6 +366,7 @@ class ConfigStore {
   get freeSlotThreshold() { return this.parsed ? this.parsed.freeSlotThreshold : 6; }
   get sourceCheckInterval() { return this.parsed ? this.parsed.sourceCheckInterval : 120; }
   get tidyInterval() { return this.parsed ? this.parsed.tidyInterval : 600; }
+  get openReach() { return this.parsed ? this.parsed.openReach : 2.9; }
   get pickup() {
     return this.parsed ? this.parsed.pickup : { box: null, deliverMode: 'box', returnMode: 'home', returnHomeCmd: '/home' };
   }
@@ -372,6 +376,7 @@ class ConfigStore {
     return {
       batchSize: this.batchSize,
       freeSlotThreshold: this.freeSlotThreshold,
+      openReach: this.openReach,
       sourceBoxes: this.sourceBoxes,
       targetBoxes: this.targetBoxes.map(tb => tb.type === 'area'
         ? { type: 'area', min: tb.min, max: tb.max, category: tb.category, items: tb.items.map(it => ({ id: it.id, name: it.name, zhName: it.zhName })) }

@@ -138,6 +138,7 @@
           <div class="config-form" style="grid-template-columns:repeat(5,1fr)">
             <label class="form-label">batchSize<input id="vis-batch" type="number" class="input"></label>
             <label class="form-label">freeSlotThreshold<input id="vis-free" type="number" class="input"></label>
+            <label class="form-label">开箱距离上限<input id="vis-reach" type="number" class="input" step="0.1" min="1" max="8" placeholder="2.9" title="bot 眼睛到箱子包围盒的最大距离（格），超过则拒绝开箱。服务器原版 reach 为 3，留 0.1 余量默认 2.9；若该服务器装了 reach 扩展插件可调大"></label>
             <label class="form-label">返回点 x<input id="vis-spx" class="input mono-input" placeholder="留空不启用"></label>
             <label class="form-label">返回点 y<input id="vis-spy" class="input mono-input"></label>
             <label class="form-label">返回点 z<input id="vis-spz" class="input mono-input"></label>
@@ -403,6 +404,7 @@
             <span class="corner-title" style="margin-left:12px">返回方式</span>
             <select id="pk-return" class="select" style="width:auto">
               <option value="home">home（指令）</option>
+              <option value="walk">walk（走回去）</option>
               <option value="tp">tp（传送回待机点）</option>
             </select>
             <input id="pk-homecmd" type="text" class="input mono-input" placeholder="/home" style="width:90px">
@@ -415,13 +417,15 @@
           <div class="vis-row">
             <span class="corner-title">收货玩家</span>
             <input id="pk-player" type="text" class="input" placeholder="tpa/tp 模式必填，box 模式可留空" style="width:220px">
-            <span class="panel-hint" style="margin:0">未盘点或无物品时，请先到「库存盘点」页执行盘点</span>
-          </div>
-          <div id="pk-items" class="vis-list"></div>
-          <div class="config-toolbar">
             <button id="pk-start" class="btn btn-primary">开始取货</button>
-            <span class="panel-hint">勾选物品并填数量（默认 64/组），可多选</span>
+            <span class="panel-hint" style="margin:0">勾选物品并填数量（默认 64/组），可多选</span>
           </div>
+          <div class="pickup-search">
+            <input id="pk-search" type="search" class="input" placeholder="搜索物品名称或 ID" autocomplete="off">
+            <span id="pk-search-count" class="muted"></span>
+          </div>
+          <div class="panel-hint" style="margin:8px 0 0">未盘点或无物品时，请先到「库存盘点」页执行盘点</div>
+          <div id="pk-items" class="vis-list"></div>
         </div>
       </section>
 

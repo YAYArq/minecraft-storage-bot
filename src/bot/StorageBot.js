@@ -6,6 +6,7 @@ const mineflayer = require('mineflayer');
 const { pathfinder } = require('mineflayer-pathfinder');
 const vec3 = require('vec3');
 const { keyOf } = require('../util/vec3util');
+const { classifyTpaMessage } = require('../util/tpaRegex');
 
 const { BotLogger } = require('./BotLogger');
 const { ItemClassifier } = require('./ItemClassifier');
@@ -45,6 +46,7 @@ class StorageBot {
     this.logger = new BotLogger(this.id, { listener: options.onLog });
     this.onStatus = options.onStatus || (() => {});
     this.onChat = options.onChat || (() => {});
+    this.settings = options.settings || null; // SystemSettings（面板系统设置，开箱距离等行为参数）
 
     /** 箱子配置路径（支持绝对路径 / 相对项目根） */
     this.storageConfigPath = botConfig.storageConfig
@@ -262,7 +264,7 @@ class StorageBot {
       this.logger.error(`加载 pathfinder 插件失败: ${err.message}`);
     }
 
-    this.chest = new ChestService(this.bot, this.logger);
+    this.chest = new ChestService(this.bot, this.logger, this.store);
 
     // 背包变化监听（自动入库）
     this.bot.inventory.on('updateSlot', () => this.onInventoryChanged());
@@ -825,19 +827,41 @@ class StorageBot {
         }
       } else {
         // tpa/tp 送货：传送到玩家附近，把物品丢到地上给玩家
-        const cmd = mode === 'tpa' ? `/tpa ${player}` : `/tp ${player}`;
-        logger.info(`[取货] 执行 ${cmd}`);
+        const isTpa = mode === 'tpa';
+        const cmd = isTpa ? `/tpa ${player}` : `/tp ${player}`;
+        logger.info(`[取货] 执行 ${cmd}${isTpa ? `，等待 ${player} 同意（最长 60 秒）` : ''}`);
+        const beforePos = this.bot.entity ? this.bot.entity.position.clone() : null;
         try { this.bot.chat(cmd); } catch (e) { logger.error(`[取货] 发送传送指令失败: ${e.message}`); }
-        await new Promise(resolve => setTimeout(resolve, 4000)); // 等待传送
-        for (const { item, std } of collected) {
-          try {
-            const invItem = this.bot.inventory.items().find(i => i.name === item.name);
-            if (invItem) {
-              await this.bot.tossStack(invItem, item.count);
-              logger.info(`[取货] 已把 ${std.zhName} x${item.count} 丢给 ${player}`);
+        const tossToPlayer = async (items) => {
+          for (const { item, std } of items) {
+            try {
+              const invItem = this.bot.inventory.items().find(i => i.name === item.name);
+              if (invItem) {
+                await this.bot.tossStack(invItem, item.count);
+                logger.info(`[取货] 已把 ${std.zhName} x${item.count} 丢给 ${player}`);
+              }
+            } catch (err) {
+              logger.error(`[取货] 丢出 ${std.zhName} 失败: ${err.message}`);
             }
-          } catch (err) {
-            logger.error(`[取货] 丢出 ${std.zhName} 失败: ${err.message}`);
+          }
+        };
+        if (isTpa) {
+          // tpa：等对方同意（正则识别同意/拒绝消息），同意后才丢物品；被拒/超时不丢
+          const res = await this.waitTpa(player, 60000);
+          if (!res.ok) {
+            logger.error(`[取货] ${res.reason}，物品未丢出`);
+          } else {
+            await new Promise(r => setTimeout(r, 2500)); // 传送落地缓冲
+            await tossToPlayer(collected);
+          }
+        } else {
+          // tp：立即传送——检测到位置变化（传送生效）即丢物品，未生效则报错不丢
+          const moved = await this.waitTeleport(beforePos, 8000);
+          if (!moved) {
+            logger.error('[取货] tp 传送未生效（位置未变化），物品未丢出，请检查 bot 的 tp 权限');
+          } else {
+            logger.info('[取货] tp 已传送，开始丢物品');
+            await tossToPlayer(collected);
           }
         }
       }
@@ -845,13 +869,75 @@ class StorageBot {
       if (cfg.returnMode === 'home') {
         const cmd = cfg.returnHomeCmd || '/home';
         try { this.bot.chat(cmd); logger.info(`[取货] 已执行返回指令 ${cmd}`); } catch (e) { logger.error(`[取货] 返回指令失败: ${e.message}`); }
+      } else if (cfg.returnMode === 'walk') {
+        await this.goStandby(); // 寻路走回待机点（不传送）
+        logger.info('[取货] 已走回待机点');
       } else {
-        await this.goStandby();
+        await this.goStandby(); // tp：当前实现为走回待机点
         logger.info('[取货] 已回待机点');
       }
       logger.info('[取货] 完成');
     });
     return { ok: true, message: '取货任务已开始（结果见日志）' };
+  }
+
+  /**
+   * 等待 tpa 请求结果：监听系统消息，用正则识别对方是否同意/拒绝（见 src/util/tpaRegex.js）。
+   * @param {string} player 收货玩家
+   * @param {number} timeoutMs 超时毫秒（默认 60 秒）
+   * @returns {Promise<{ok:boolean, reason?:string}>}
+   */
+  waitTpa(player, timeoutMs = 60000) {
+    return new Promise((resolve) => {
+      const bot = this.bot;
+      if (!bot || !bot.entity) { resolve({ ok: false, reason: 'bot 不可用' }); return; }
+      let settled = false;
+      const cleanup = () => {
+        clearTimeout(timer);
+        bot.removeListener('message', onMessage);
+      };
+      const done = (res) => {
+        if (settled) return;
+        settled = true;
+        cleanup();
+        resolve(res);
+      };
+      const timer = setTimeout(() => done({
+        ok: false,
+        reason: `等待 ${player} 同意 tpa 超时（${Math.round(timeoutMs / 1000)} 秒，请确认对方收到并接受传送请求）`
+      }), timeoutMs);
+      const onMessage = (jsonMsg) => {
+        const cls = classifyTpaMessage(jsonMsg);
+        if (cls === 'accepted') {
+          this.logger.info(`[取货] tpa 已同意，开始传送（${String(jsonMsg).slice(0, 60)}）`);
+          done({ ok: true });
+        } else if (cls === 'rejected') {
+          const text = String(jsonMsg).slice(0, 80);
+          this.logger.warn(`[取货] tpa 被拒绝/失败：${text}`);
+          done({ ok: false, reason: `tpa 未生效：${text}` });
+        }
+      };
+      bot.on('message', onMessage);
+    });
+  }
+
+  /**
+   * 等待传送生效：发送传送指令后轮询 bot 位置，位置变化 > 2 格视为已传送到目标附近。
+   * tp 立即传送用此确认（替代固定等待）；未检测到位移说明传送未生效。
+   * @param {import('vec3').Vec3} before 发送指令前的位置
+   * @param {number} timeoutMs 超时毫秒（默认 8 秒）
+   * @returns {Promise<boolean>} 是否检测到传送位移
+   */
+  async waitTeleport(before, timeoutMs = 8000) {
+    const bot = this.bot;
+    if (!bot || !bot.entity || !before) return false;
+    const start = Date.now();
+    while (Date.now() - start < timeoutMs) {
+      await new Promise(r => setTimeout(r, 500));
+      if (!bot.entity) return false;
+      if (bot.entity.position.distanceTo(before) > 2) return true; // 位置变化 = 传送生效
+    }
+    return false;
   }
 
   /** 存入溢出箱：按配置顺序尝试，存满自动换下一个；全部溢出箱满则暂停全部任务 */

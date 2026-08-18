@@ -53,7 +53,8 @@ class BotManager {
       const bot = new StorageBot(botConfig, {
         onLog: (entry) => this.onLog(entry),
         onStatus: (snapshot) => this.onStatus(snapshot),
-        onChat: (chat) => this.onChat(chat)
+        onChat: (chat) => this.onChat(chat),
+        settings: this.settings
       });
       this.bots.set(botConfig.id, bot);
     }
@@ -117,7 +118,7 @@ class BotManager {
     json.pickup = {
       box,
       deliverMode: ['box', 'tpa', 'tp'].includes(p.deliverMode) ? p.deliverMode : 'box',
-      returnMode: ['home', 'tp'].includes(p.returnMode) ? p.returnMode : 'home',
+      returnMode: ['home', 'walk', 'tp'].includes(p.returnMode) ? p.returnMode : 'home',
       returnHomeCmd: typeof p.returnHomeCmd === 'string' && p.returnHomeCmd.trim() ? p.returnHomeCmd.trim() : '/home'
     };
     const result = this.updateStorageConfig(id, json);
